@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "Dhan Header Capturer",
+  "version": "1.0",
+  "description": "Captures authentication headers from Dhan and sends them to the local backend.",
+  "permissions": [
+    "webRequest",
+    "declarativeNetRequest",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.dhan.co/*",
+    "http://localhost:3001/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
