@@ -1,753 +1,507 @@
 # TradingView Chart Panning & Data Fetching Mechanism
+**Based on Reverse-Engineered Dhan Implementation**
 
 ## Table of Contents
 1. [Overview](#overview)
-2. [Two-Stage Data Loading Pattern](#two-stage-data-loading-pattern)
-3. [Initial Chart Load](#initial-chart-load)
-4. [Real-Time WebSocket Updates](#real-time-websocket-updates)
-5. [Panning Left - The Mechanism](#panning-left---the-mechanism)
-6. [Implementation Details](#implementation-details)
-7. [Code Examples](#code-examples)
-8. [Data Flow Diagrams](#data-flow-diagrams)
-9. [Best Practices](#best-practices)
-10. [Troubleshooting](#troubleshooting)
+2. [The getBars Implementation](#the-getbars-implementation)
+3. [How Panning Works](#how-panning-works)
+4. [Request Construction](#request-construction)
+5. [Response Processing](#response-processing)
+6. [Caching Strategy](#caching-strategy)
+7. [Implementation Guide](#implementation-guide)
+8. [Best Practices](#best-practices)
 
 ---
 
 ## Overview
 
-TradingView charts in the Dhan platform use a **hybrid dual-channel architecture** to display trading data:
+The Dhan TradingView integration uses **Class `Dn`** (from `bundle2.1.37.js`) to handle all chart data fetching. This class implements:
 
-1. **Historical Data Channel** – HTTP REST API (`/getData`) for fetching chunks of past OHLC data on-demand
-2. **Real-Time Channel** – WebSocket binary protocol for streaming live price ticks
+1. **Minimum Data Window**: Always fetches at least 7 days of data
+2. **Smart Range Adjustment**: Normalizes times to midnight and handles IST offset
+3. **Efficient Caching**: Stores up to 31 days of data with date-keyed lookup
+4. **Progressive Loading**: Fetches older data only when user pans left
 
-This approach allows charts to:
-- Load initial history efficiently without excessive data transfer
-- Extend history backwards as users pan left
-- Update the latest bar(s) in real-time without additional API calls
-- Maintain smooth, responsive user experience
-
-### Key Principle
-**Progressive data loading**: Only fetch the data the user is viewing or about to view, not all available history at once.
-
----
-
-## Two-Stage Data Loading Pattern
-
-### Stage 1: Initial Load (Bulk Historical Data)
-When a chart first opens:
-- Fetch 1 month (or configurable range) of historical bars via `/getData` API
-- Use `setData()` method to bulk-load into the chart
-- Display immediately
-
-### Stage 2: Real-Time Updates (Continuous Stream)
-After initial load:
-- Open WebSocket connection for live ticks
-- Receive binary messages with price updates (Type 1, Type 3, etc.)
-- Use `update()` method to refresh the latest bar(s)
-- No additional `/getData` calls needed for current bar
-
-### Stage 3: Pan Left (Extended History On-Demand)
-When user drags chart left:
-- Detect that visible range extends before loaded data
-- Fetch earlier historical data via `/getData`
-- Merge with existing data
-- Re-render chart with extended history
+### Key Discovery
+The implementation **does not use** `subscribeVisibleLogicalRangeChange()` for panning. Instead, it:
+- Pre-calculates date ranges with minimum 7-day buffer
+- Normalizes all timestamps to midnight (removes time component)
+- Uses IST offset (+5.5 hours) for timezone handling
+- Implements its own caching layer for performance
 
 ---
 
-## Initial Chart Load
+## The getBars Implementation
 
-### API Call Structure
+### Class Structure
 
-**Endpoint**: `POST https://ticks.dhan.co/getData`
+```javascript
+class Dn {
+    constructor(datafeedUrl, requester) {
+        this._datafeedUrl = datafeedUrl
+        this._requester = requester
+    }
+    
+    getDayDiff(dateA, dateB) { 
+        // Calculate difference in days
+    }
+    
+    getChartsRange(range, periodParams) { 
+        // Adjust time range with 7-day minimum
+    }
+    
+    getBars(symbolInfo, resolution, periodParams) { 
+        // Main data fetching function
+    }
+}
+```
 
-**Request Payload**:
+---
+
+## How Panning Works
+
+### Method 1: `getDayDiff` - Calculate Date Difference
+
+```javascript
+getDayDiff(t, i) {
+    let dayDiff = t.getTime() - i.getTime();
+    return Math.floor(dayDiff / 864e5)  // 86400000ms = 1 day
+}
+```
+
+**Purpose**: Determines how much historical data to fetch
+
+---
+
+### Method 2: `getChartsRange` - Adjust Time Range
+
+This is the **core panning logic**:
+
+```javascript
+getChartsRange(range, periodParams) {
+    // 1. Get current date and normalize times
+    let currentDate = new Date((new Date).toDateString())
+    let startDate = new Date(new Date(1000 * periodParams.from).toDateString());
+    periodParams.from = Math.floor(startDate.getTime() / 1000);
+    
+    let endDate = new Date(new Date(1000 * periodParams.to).toDateString());
+    periodParams.to = Math.floor(endDate.getTime() / 1000);
+    
+    // 2. Calculate day differences
+    let daysFromNow = this.getDayDiff(currentDate, startDate)
+    let daysToNow = this.getDayDiff(currentDate, endDate);
+    
+    // 3. Adjust for today
+    if (daysToNow == 0) {
+        periodParams.to += 86400  // Add 1 day (in seconds)
+    }
+    
+    // 4. **MINIMUM 7-DAY WINDOW** - This ensures smooth panning!
+    if (daysFromNow - daysToNow < 7) {
+        daysFromNow += 7
+        periodParams.from -= 604800  // Subtract 7 days (604800 seconds)
+    }
+    
+    range.from = daysFromNow
+    range.to = daysToNow
+    
+    return periodParams
+}
+```
+
+### Key Insights
+
+✅ **Normalizes all times to midnight** - Removes time component for consistency  
+✅ **Always fetches at least 7 days** - Prevents repeated small requests  
+✅ **Adjusts for current day** - Adds extra day to include today's data  
+✅ **Returns Unix timestamps in seconds** - Standard format
+
+---
+
+## Request Construction
+
+### API Endpoints
+
+```javascript
+// Standard resolutions (D, W, M)
+const URL_STANDARD = 'https://ticks.dhan.co/getData';
+
+// Seconds resolution (1s, 5s, etc.)
+const URL_SECONDS = 'https://ticks.dhan.co/getDataS';
+```
+
+### IST Offset Handling
+
+```javascript
+// IST offset: +330 minutes (5.5 hours)
+const IST_OFFSET = 330; // minutes
+
+startTime = new Date(1000 * (periodParams.from + IST_OFFSET))
+startTime.setHours(0)
+startTime.setMinutes(0)
+startTime.setSeconds(1)
+```
+
+### Request Payload Structure
+
 ```json
 {
-  "EXCH": "NSE",
-  "SEG": "E",
+  "EXCHANGE": "NSE",
+  "SEGMENT": "E",
   "INST": "EQUITY",
-  "SEC_ID": 14366,
-  "interval": "1",
-  "fromDate": "2024-11-01",
-  "toDate": "2024-12-01"
+  "SEC_ID": "14366",
+  "START": 1700000000,
+  "END": 1700604800,
+  "START_TIME": "Mon Nov 13 2023 00:00:01 GMT+0530",
+  "END_TIME": "Mon Nov 20 2023 00:00:01 GMT+0530",
+  "INTERVAL": "D"
 }
 ```
 
-**Response Format**:
-```json
-{
-  "status": "success",
-  "data": [
-    {
-      "time": 1640000000,
-      "open": 14.00,
-      "high": 14.50,
-      "low": 13.80,
-      "close": 14.25,
-      "volume": 1234567
-    },
-    ...
-  ]
-}
-```
-
-### Implementation (Lightweight Charts Example)
+### Complete Request Construction
 
 ```javascript
-class DhanChartManager {
-  async loadHistoricalData() {
-    try {
-      const toDate = new Date();
-      const fromDate = new Date();
-      fromDate.setMonth(fromDate.getMonth() - 1); // Last 1 month
+// Build payload
+payload.EXCHANGE = symbolInfo.EXCHANGE
+payload.SEGMENT = symbolInfo.SEGMENT
+payload.SEC_ID = symbolInfo.SEC_ID
+payload.START = startTime.getTime() / 1000  // Unix timestamp in seconds
+payload.END = endTime.getTime() / 1000
+payload.INTERVAL = resolution  // "1", "5", "15", "D", etc.
 
-      const historicalData = await this.dataFetcher.getHistoricalData(
-        this.currentInstrument,
-        this.currentInterval,
-        fromDate.toISOString().split('T')[0],
-        toDate.toISOString().split('T')[0]
-      );
-
-      // BULK LOAD - setData() is used for complete historical dataset
-      this.candlestickSeries.setData(historicalData);
-      
-      console.log(`Loaded ${historicalData.length} historical bars`);
-    } catch (error) {
-      console.error('Failed to load historical data:', error);
-    }
-  }
-}
-```
-
-### Key Method: `setData()`
-- Replaces entire chart dataset
-- Used for initial load and complete refreshes
-- More efficient than calling `update()` multiple times
-- Triggers complete chart re-render
-
----
-
-## Real-Time WebSocket Updates
-
-### WebSocket Connection Setup
-
-**Endpoint**: `wss://price-feed-tv.dhan.co/` (TradingView) or `wss://price-feed-web.dhan.co/` (Web App)
-
-**Protocol**: Binary proprietary protocol (703-byte handshake + 129-byte subscriptions)
-
-### Message Types Received
-
-| Type | Name | Use Case | Frequency |
-|------|------|----------|-----------|
-| 1 | LTP/Tick | Live price update | Every trade |
-| 3 | OHLC | Complete bar update | End of candle |
-| 6 | Top Bid | Best bid/ask | Tick |
-| 14 | Heartbeat | Keep-alive | Every few seconds |
-| 32 | Previous Close | Reference price | One-time |
-| 33 | Circuit Limit | Price boundaries | One-time |
-| 36 | 52-Week High/Low | Range reference | One-time |
-
-### Real-Time Update Implementation
-
-```javascript
-subscribeToRealtime() {
-  this.wsClient.subscribe(this.currentInstrument, (tick) => {
-    if (tick.type === 'tick') {
-      // LTP update - use update() for incremental bar modification
-      const chartBar = {
-        time: Math.floor(tick.time.getTime() / 1000),
-        open: tick.ltp,
-        high: tick.ltp,
-        low: tick.ltp,
-        close: tick.ltp,
-      };
-      
-      // INCREMENTAL UPDATE - update() modifies the latest bar only
-      this.candlestickSeries.update(chartBar);
-      
-    } else if (tick.type === 'ohlc') {
-      // OHLC update - full bar data
-      const chartBar = {
-        time: Math.floor(Date.now() / 1000),
-        open: tick.open,
-        high: tick.high,
-        low: tick.low,
-        close: tick.close,
-      };
-      
-      this.candlestickSeries.update(chartBar);
-    }
-  });
-}
-```
-
-### Key Method: `update()`
-- Modifies or adds a single bar
-- Used for real-time tick/OHLC updates
-- Much lighter weight than re-rendering entire dataset
-- Automatically extends chart if time is beyond current range
-
----
-
-## Panning Left - The Mechanism
-
-### Step-by-Step Process
-
-```
-┌─────────────────────────────────────────────────────────┐
-│ User Pans/Drags Chart Towards Left                      │
-│ (Attempting to view older/historical data)              │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│ Lightweight Charts Library Detects                       │
-│ - Viewport has shifted left                             │
-│ - Visible time range extends BEFORE loaded data start   │
-│ - Triggers logicalRange / visibleRange change event     │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│ Frontend Event Handler Fires                            │
-│ - Calculate: new_fromDate = min_visible_time - buffer   │
-│ - Compare: new_fromDate < current_fromDate ?            │
-│ - Decision: Need to fetch older data?                   │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-                       ▼ (Yes, need older data)
-┌─────────────────────────────────────────────────────────┐
-│ Trigger /getData API Call with Earlier Date Range       │
-│ POST https://ticks.dhan.co/getData                      │
-│ {                                                        │
-│   "EXCH": "NSE",                                        │
-│   "SEC_ID": 14366,                                      │
-│   "fromDate": "2024-10-01",   ◄── Earlier than before   │
-│   "toDate": "2024-11-01",     ◄── Previous fromDate     │
-│   "interval": "1"                                        │
-│ }                                                        │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│ Server Returns Older OHLC Bars                          │
-│ Array of { time, open, high, low, close, volume }       │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│ Frontend Merges Data                                     │
-│ combinedData = [...olderData, ...currentData]           │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────┐
-│ Update Chart with setData()                             │
-│ this.candlestickSeries.setData(combinedData)            │
-│ - Chart re-renders with extended history                │
-│ - User sees older bars on the left side                 │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Implementation
-
-```javascript
-// Hook into chart's visible range change event
-chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
-  if (!logicalRange) return;
-
-  const visibleBars = series.barsInLogicalRange(logicalRange);
-  
-  // Check if we're viewing data before what we've loaded
-  if (visibleBars && visibleBars.first < this.loadedDataStartTime) {
-    this.fetchEarlierData();
-  }
-});
-
-async fetchEarlierData() {
-  // Calculate date range for older data
-  const currentFromDate = this.dataStartDate;
-  const newFromDate = new Date(currentFromDate);
-  newFromDate.setMonth(newFromDate.getMonth() - 1); // Go back 1 more month
-
-  try {
-    const olderData = await this.dataFetcher.getHistoricalData(
-      this.currentInstrument,
-      this.currentInterval,
-      newFromDate.toISOString().split('T')[0],
-      currentFromDate.toISOString().split('T')[0]
-    );
-
-    // Merge old and new data
-    const combinedData = [...olderData, ...this.currentData];
-    
-    // Update chart with complete merged dataset
-    this.candlestickSeries.setData(combinedData);
-    
-    // Update tracking variables
-    this.currentData = combinedData;
-    this.dataStartDate = newFromDate;
-    this.loadedDataStartTime = olderData[0].time;
-    
-    console.log(`Extended history by ${olderData.length} bars`);
-  } catch (error) {
-    console.error('Failed to fetch earlier data:', error);
-  }
-}
-```
-
----
-
-## Implementation Details
-
-### Method Selection Logic
-
-```
-┌─────────────────────────────────────────────┐
-│ Need to Update Chart?                       │
-├─────────────────────────────────────────────┤
-│                                             │
-│ ┌─────────── Full Dataset? ──────────────┐  │
-│ │                                        │  │
-│ │ Use: setData(bars)                     │  │
-│ │                                        │  │
-│ │ When:                                  │  │
-│ │ • Initial load                         │  │
-│ │ • Symbol change                        │  │
-│ │ • Interval change                      │  │
-│ │ • Panning left (extended history)      │  │
-│ │ • Any complete refresh                 │  │
-│ │                                        │  │
-│ └────────────────────────────────────────┘  │
-│                  OR                         │
-│ ┌─────────── Single Tick? ───────────────┐  │
-│ │                                        │  │
-│ │ Use: update(bar)                       │  │
-│ │                                        │  │
-│ │ When:                                  │  │
-│ │ • WebSocket LTP tick received          │  │
-│ │ • WebSocket OHLC update received       │  │
-│ │ • Real-time price update               │  │
-│ │ • Incremental bar modification         │  │
-│ │                                        │  │
-│ └────────────────────────────────────────┘  │
-│                                             │
-└─────────────────────────────────────────────┘
-```
-
-### Performance Considerations
-
-**Why `setData()` for panned data?**
-- Merging datasets requires rebuilding the complete history
-- More efficient to reload entire dataset than update individual bars
-- Library optimizes re-rendering for full dataset loads
-- Prevents sync issues between old and new data
-
-**Why `update()` for real-time?**
-- Only the latest bar(s) change with each tick
-- Much lower overhead than re-rendering entire chart
-- Maintains smooth 60 FPS experience
-- Minimal network bandwidth
-
-### Data Continuity
-
-When merging historical data during pan operations:
-
-```javascript
-// Ensure no gaps and proper ordering
-const mergeHistoricalData = (olderData, currentData) => {
-  // Remove any overlap
-  const lastOldTime = olderData[olderData.length - 1]?.time;
-  const filteredCurrent = currentData.filter(bar => bar.time > lastOldTime);
-  
-  // Combine: older data first, then newer
-  return [...olderData, ...filteredCurrent];
+// Required headers
+const headers = {
+    'Content-Type': 'application/json',
+    'Auth': JWT_TOKEN,
+    'Authorization': SIGNATURE,
+    'Bid': 'DHN1804',
+    'Cid': CLIENT_ID,
+    'Src': 'T'  // 'T' for TradingView
 };
 ```
 
 ---
 
-## Code Examples
+## Response Processing
 
-### Complete Chart Manager with Pan Support
+### Response Format
+
+```json
+{
+  "success": true,
+  "data": {
+    "Time": ["2023-11-13", "2023-11-14", "2023-11-15"],
+    "o": [100.5, 101.2, 102.0],
+    "h": [102.0, 103.5, 104.0],
+    "l": [99.5, 100.8, 101.5],
+    "c": [101.0, 102.5, 103.0],
+    "v": [1000000, 1200000, 1100000]
+  },
+  "nextTime": 1700000000
+}
+```
+
+### Processing Logic
 
 ```javascript
-class DhanChartManagerWithPanSupport {
-  constructor(containerId, clientId, token, tabId) {
-    this.container = document.getElementById(containerId);
-    this.chart = null;
-    this.candlestickSeries = null;
+// Parse response
+response = JSON.parse(response)
+
+if (response.success && response.data.c && response.data.c.length) {
+    let bars = [];
     
-    this.dataFetcher = new DhanDataFetcher(token, clientId);
-    this.wsClient = new DhanWebSocketClient(clientId, token, tabId);
-    
-    this.currentInstrument = null;
-    this.currentInterval = '1';
-    this.currentData = [];
-    this.dataStartDate = null;
-  }
-
-  async initialize(instrument, interval = '1') {
-    this.currentInstrument = instrument;
-    this.currentInterval = interval;
-
-    // Create chart
-    this.chart = createChart(this.container, {
-      width: this.container.clientWidth,
-      height: 600,
-      timeScale: { timeVisible: true, secondsVisible: false },
-    });
-
-    this.candlestickSeries = this.chart.addCandlestickSeries({
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-    });
-
-    // Load historical data
-    await this.loadHistoricalData();
-
-    // Connect WebSocket for real-time
-    await this.wsClient.connect();
-    this.subscribeToRealtime();
-
-    // Hook pan event for fetching older data
-    this.hookPanEvent();
-  }
-
-  async loadHistoricalData() {
-    try {
-      const toDate = new Date();
-      const fromDate = new Date();
-      fromDate.setMonth(fromDate.getMonth() - 1);
-
-      const historicalData = await this.dataFetcher.getHistoricalData(
-        this.currentInstrument,
-        this.currentInterval,
-        fromDate.toISOString().split('T')[0],
-        toDate.toISOString().split('T')[0]
-      );
-
-      this.candlestickSeries.setData(historicalData);
-      this.currentData = historicalData;
-      this.dataStartDate = fromDate;
-
-      console.log(`Loaded ${historicalData.length} bars`);
-    } catch (error) {
-      console.error('Historical data load failed:', error);
-    }
-  }
-
-  hookPanEvent() {
-    // Subscribe to visible logical range changes
-    this.chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
-      if (!logicalRange) return;
-
-      // Check if user is viewing data before our loaded range
-      const barsInfo = this.candlestickSeries.barsInLogicalRange(logicalRange);
-      
-      if (barsInfo && barsInfo.barsBefore !== null) {
-        // User is viewing earlier data - consider fetching
-        if (barsInfo.barsBefore > 0) {
-          this.fetchEarlierData();
+    for (let i = 0; i < data.c.length; i++) {
+        let bar = {
+            close: parseFloat(data.c[i]),
+            high: parseFloat(data.h[i]),
+            low: parseFloat(data.l[i]),
+            open: parseFloat(data.o[i]),
+            time: new Date(new Date(data.Time[i]).toDateString()).getTime(),
+            volume: Number(data.v[i])
         }
-      }
-    });
-  }
-
-  async fetchEarlierData() {
-    if (this.isFetching) return; // Prevent duplicate requests
-    this.isFetching = true;
-
-    try {
-      const currentFromDate = this.dataStartDate;
-      const newFromDate = new Date(currentFromDate);
-      newFromDate.setMonth(newFromDate.getMonth() - 1);
-
-      console.log(`Fetching older data: ${newFromDate.toISOString()} to ${currentFromDate.toISOString()}`);
-
-      const olderData = await this.dataFetcher.getHistoricalData(
-        this.currentInstrument,
-        this.currentInterval,
-        newFromDate.toISOString().split('T')[0],
-        currentFromDate.toISOString().split('T')[0]
-      );
-
-      if (olderData.length === 0) {
-        console.log('No older data available');
-        return;
-      }
-
-      // Merge data
-      const combinedData = [...olderData, ...this.currentData];
-      
-      // Update chart - use setData() for merged dataset
-      this.candlestickSeries.setData(combinedData);
-      
-      // Update internal state
-      this.currentData = combinedData;
-      this.dataStartDate = newFromDate;
-
-      console.log(`Extended history by ${olderData.length} bars`);
-    } catch (error) {
-      console.error('Failed to fetch earlier data:', error);
-    } finally {
-      this.isFetching = false;
+        bars.push(bar)
     }
-  }
-
-  subscribeToRealtime() {
-    this.wsClient.subscribe(this.currentInstrument, (tick) => {
-      if (tick.type === 'tick') {
-        const chartBar = {
-          time: Math.floor(tick.time.getTime() / 1000),
-          open: tick.ltp,
-          high: tick.ltp,
-          low: tick.ltp,
-          close: tick.ltp,
-        };
-        
-        // Use update() for real-time ticks
-        this.candlestickSeries.update(chartBar);
-        
-      } else if (tick.type === 'ohlc') {
-        const chartBar = {
-          time: Math.floor(Date.now() / 1000),
-          open: tick.open,
-          high: tick.high,
-          low: tick.low,
-          close: tick.close,
-        };
-        
-        this.candlestickSeries.update(chartBar);
-      }
-    });
-  }
-
-  destroy() {
-    if (this.wsClient) this.wsClient.disconnect();
-    if (this.chart) this.chart.remove();
-  }
+    
+    // Sort chronologically
+    bars.sort((a, b) => a.time - b.time);
+    
+    return { bars, meta: { noData: false } }
 }
 ```
 
 ---
 
-## Data Flow Diagrams
+## Caching Strategy
 
-### Complete Chart Lifecycle
+### Cache Structure
 
-```
-APPLICATION START
-      │
-      ├─────────────────────────────────────────────────────┐
-      │                                                     │
-      ▼                                                     ▼
-┌──────────────────────┐                         ┌──────────────────────┐
-│ Load Historical Data │                         │ Connect WebSocket    │
-│ HTTP /getData        │                         │ wss://price-feed-tv  │
-│ Last 1 month         │                         │ Send 703B handshake  │
-│ Uses: setData()      │                         │ Send 129B sub frame  │
-└──────────────────────┘                         └──────────────────────┘
-      │                                                     │
-      │                                                     │
-      └─────────────────────────────┬─────────────────────┘
-                                    │
-                                    ▼
-                          ┌──────────────────────┐
-                          │ Chart Displays       │
-                          │ Initial 1 month data │
-                          └──────────────────────┘
-                                    │
-                                    │
-                 ┌──────────────────┴──────────────────┐
-                 │                                     │
-                 ▼                                     ▼
-        ┌────────────────────┐              ┌────────────────────┐
-        │ User Pans Left     │              │ Real-Time Updates  │
-        │ Needs Older Data   │              │ WebSocket Ticks    │
-        └────────┬───────────┘              └─────────┬──────────┘
-                 │                                    │
-                 ▼                                    ▼
-        ┌────────────────────┐              ┌────────────────────┐
-        │ Fetch Earlier Data │              │ Parse Binary Data  │
-        │ HTTP /getData      │              │ Type 1/3 updates   │
-        │ Previous month     │              └─────────┬──────────┘
-        │ Uses: setData()    │                        │
-        └────────┬───────────┘                        ▼
-                 │                          ┌────────────────────┐
-                 │                          │ Update Latest Bar  │
-                 │                          │ Uses: update()     │
-                 │                          └────────┬───────────┘
-                 │                                    │
-                 └──────────────────┬─────────────────┘
-                                    │
-                                    ▼
-                          ┌──────────────────────┐
-                          │ Chart State          │
-                          │ Extended + Current   │
-                          └──────────────────────┘
+Dhan implements a **31-day sliding window cache**:
+
+```javascript
+// Daily cache object
+Ye[symbol] = {
+    time: currentTimestamp,
+    dataArray: [],
+    "2023-11-13": { open, high, low, close, volume, time, dateTime },
+    "2023-11-14": { open, high, low, close, volume, time, dateTime },
+    // ... up to 31 days
+}
+
+// Weekly cache object  
+Qe[symbol] = {
+    time: currentTimestamp,
+    dataArray: [],
+    "2023-11-W1": { aggregated weekly data },
+    // ...
+}
 ```
 
-### Data Update Methods Comparison
+### Caching Logic
+
+✅ **Stores last 31 days** of data  
+✅ **Keys are date strings** ("YYYY-MM-DD")  
+✅ **Updates existing bars** with new highs/lows/closes  
+✅ **Separate caches** for daily and weekly aggregations  
+✅ **Before API call**: Check cache for existing data  
+✅ **After API call**: Update cache with new bars
+
+---
+
+## Implementation Guide
+
+### Complete Data Flow
 
 ```
-┌──────────────────────────┬──────────────────────────────────────┐
-│ setData(historicalBars)  │ update(currentBar)                    │
-├──────────────────────────┼──────────────────────────────────────┤
-│ Complete dataset         │ Single bar update                    │
-│ Replaces all chart data  │ Modifies latest bar or adds new one  │
-│ Initial load             │ Real-time updates                    │
-│ Pan left (new history)   │ WebSocket ticks                      │
-│ Symbol/interval change   │ OHLC updates                         │
-│ Full re-render           │ Minimal re-render                    │
-│ Higher bandwidth         │ Lower bandwidth                      │
-│ ~100ms+ render time      │ ~10ms render time                    │
-└──────────────────────────┴──────────────────────────────────────┘
+1. TradingView requests bars
+   ↓
+2. getBars(symbolInfo, resolution, {from, to})
+   ↓
+3. getChartsRange() ensures minimum 7 days requested
+   ↓
+4. Normalize timestamps to midnight
+   ↓
+5. Apply IST offset (+330 minutes)
+   ↓
+6. Build request payload:
+   {
+     EXCHANGE: "NSE",
+     SEGMENT: "E",
+     SEC_ID: "14366",
+     START: timestamp,
+     END: timestamp,
+     INTERVAL: "D"
+   }
+   ↓
+7. POST to https://ticks.dhan.co/getData
+   Headers: { Auth: JWT_TOKEN }
+  ↓
+8. Server returns:
+   {
+     success: true,
+     data: {
+       Time: [...],
+       o: [...],
+       h: [...],
+       l: [...],
+       c: [...],
+       v: [...]
+     }
+   }
+   ↓
+9. Process response:
+   - Parse arrays
+   - Create bar objects
+   - Sort by time
+   ↓
+10. Cache bars (keyed by date)
+    ↓
+11. Return { bars: [...], meta: {...} }
+    ↓
+12. TradingView renders candles
+```
+
+### Recommended Implementation
+
+```javascript
+class ChartDataFetcher {
+    constructor() {
+        this.cache = {};  // Symbol-keyed cache
+        this.IST_OFFSET = 330; // minutes
+    }
+    
+    /**
+     * Ensures minimum 7-day data window
+     */
+    ensureMinimumRange(from, to) {
+        // Normalize to midnight
+        const fromDate = new Date(new Date(from * 1000).toDateString());
+        const toDate = new Date(new Date(to * 1000).toDateString());
+        
+        const currentDate = new Date(new Date().toDateString());
+        
+        // Calculate day differences
+        const daysFrom = this.getDayDiff(currentDate, fromDate);
+        const daysTo = this.getDayDiff(currentDate, toDate);
+        
+        // Ensure minimum 7-day window
+        let adjustedFrom = Math.floor(fromDate.getTime() / 1000);
+        let adjustedTo = Math.floor(toDate.getTime() / 1000);
+        
+        if (daysTo === 0) {
+            adjustedTo += 86400; // Add 1 day for today
+        }
+        
+        if (daysFrom - daysTo < 7) {
+            adjustedFrom -= 604800; // Subtract 7 days
+        }
+        
+        return { from: adjustedFrom, to: adjustedTo };
+    }
+    
+    /**
+     * Calculate day difference
+     */
+    getDayDiff(dateA, dateB) {
+        const diff = dateA.getTime() - dateB.getTime();
+        return Math.floor(diff / 86400000); // 86400000ms = 1 day
+    }
+    
+    /**
+     * Fetch bars with caching
+     */
+    async getBars(symbol, exchange, segment, secId, from, to, interval) {
+        // 1. Adjust time range (minimum 7 days)
+        const adjusted = this.ensureMinimumRange(from, to);
+        
+        // 2. Check cache
+        const cacheKey = `${symbol}_${interval}_${adjusted.from}_${adjusted.to}`;
+        const cached = this.cache[cacheKey];
+        if (cached) {
+            console.log('Returning cached data');
+            return cached;
+        }
+        
+        // 3. Apply IST offset for request
+        const startTime = new Date((adjusted.from + this.IST_OFFSET * 60) * 1000);
+        startTime.setHours(0, 0, 1, 0);
+        
+        const endTime = new Date((adjusted.to + this.IST_OFFSET * 60) * 1000);
+        endTime.setHours(23, 59, 59, 999);
+        
+        // 4. Build request
+        const payload = {
+            EXCHANGE: exchange,
+            SEGMENT: segment,
+            SEC_ID: secId,
+            START: Math.floor(startTime.getTime() / 1000),
+            END: Math.floor(endTime.getTime() / 1000),
+            INTERVAL: interval,
+            START_TIME: startTime.toString(),
+            END_TIME: endTime.toString()
+        };
+        
+        // 5. Fetch from API
+        const response = await fetch('http://localhost:3001/api/getData', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        // 6. Process response
+        const data = await response.json();
+        const bars = this.processBars(data);
+        
+        // 7. Cache result
+        this.cache[cacheKey] = bars;
+        
+        return bars;
+    }
+    
+    /**
+     * Process API response into chart bars
+     */
+    processBars(response) {
+        if (!response.success || !response.data.c || !response.data.c.length) {
+            return { bars: [], meta: { noData: true } };
+        }
+        
+        const data = response.data;
+        const bars = [];
+        
+        for (let i = 0; i < data.c.length; i++) {
+            // Normalize time to midnight
+            const time = new Date(new Date(data.Time[i]).toDateString());
+            
+            bars.push({
+                time: Math.floor(time.getTime() / 1000),
+                open: parseFloat(data.o[i]),
+                high: parseFloat(data.h[i]),
+                low: parseFloat(data.l[i]),
+                close: parseFloat(data.c[i]),
+                volume: parseInt(data.v[i])
+            });
+        }
+        
+        // Sort chronologically
+        bars.sort((a, b) => a.time - b.time);
+        
+        return {
+            bars,
+            meta: { noData: false }
+        };
+    }
+}
 ```
 
 ---
 
 ## Best Practices
 
-### 1. Smart Pan Detection
+### 1. Always Ensure Minimum Data Window
+
 ```javascript
-// Only fetch if user is VIEWING older data, not just scrolling
-// Add hysteresis to prevent excessive API calls
-const shouldFetchOlderData = (logicalRange, bufferBars = 50) => {
-  const barsBeforeVisible = logicalRange.barsBefore;
-  return barsBeforeVisible < bufferBars; // Fetch when buffer runs low
-};
-```
-
-### 2. Debounce API Calls
-```javascript
-// Prevent multiple simultaneous /getData requests during quick pans
-let panFetchTimer = null;
-const debouncedFetchEarlierData = () => {
-  clearTimeout(panFetchTimer);
-  panFetchTimer = setTimeout(() => {
-    fetchEarlierData();
-  }, 300); // Wait 300ms before fetching
-};
-```
-
-### 3. Cache Downloaded Data
-```javascript
-// Store fetched historical data to avoid re-fetching
-const dataCache = new Map();
-const getCachedData = (key) => dataCache.get(key);
-const cacheData = (key, data) => dataCache.set(key, data);
-```
-
-### 4. Handle Data Gaps
-```javascript
-// Verify continuity between old and new data
-const validateDataContinuity = (olderData, newerData) => {
-  if (olderData.length === 0 || newerData.length === 0) return true;
-  
-  const lastOldTime = olderData[olderData.length - 1].time;
-  const firstNewTime = newerData[0].time;
-  
-  // Allow 1 interval gap (acceptable due to market hours)
-  const intervalSeconds = 60; // Adjust based on chart interval
-  return (firstNewTime - lastOldTime) <= intervalSeconds;
-};
-```
-
-### 5. Progressive Loading UI
-```javascript
-// Show loading indicator during data fetch
-const showLoadingIndicator = () => {
-  document.getElementById('loader').style.display = 'block';
-};
-
-const hideLoadingIndicator = () => {
-  document.getElementById('loader').style.display = 'none';
-};
-
-async fetchEarlierData() {
-  showLoadingIndicator();
-  try {
-    // ... fetch logic
-  } finally {
-    hideLoadingIndicator();
-  }
+// Don't fetch small chunks - always 7+ days
+if (daysFromNow - daysToNow < 7) {
+    daysFromNow += 7
+    periodParams.from -= 604800
 }
 ```
 
----
+### 2. Normalize Timestamps
 
-## Troubleshooting
-
-### Issue 1: Chart Shows Gaps When Panning
-**Cause**: Missing data or improper merging
-**Solution**:
 ```javascript
-// Verify data continuity and remove overlaps
-const mergeCleanly = (olderData, currentData) => {
-  const lastOldTime = olderData[olderData.length - 1]?.time || 0;
-  const filtered = currentData.filter(bar => bar.time > lastOldTime);
-  return [...olderData, ...filtered];
+// Remove time component for consistency
+const normalizeToMidnight = (timestamp) => {
+    return new Date(new Date(timestamp * 1000).toDateString());
 };
 ```
 
-### Issue 2: Pan Events Fire Too Frequently
-**Cause**: No debouncing on pan detection
-**Solution**:
-```javascript
-// Use debounce pattern (see Best Practices section)
-let lastFetchTime = 0;
-const MIN_FETCH_INTERVAL = 1000; // 1 second minimum
+### 3. Handle IST Offset Correctly
 
-const shouldFetch = () => {
-  return Date.now() - lastFetchTime > MIN_FETCH_INTERVAL;
+```javascript
+// Add IST offset before setting specific time
+const applyISTOffset = (unixSeconds) => {
+    return new Date((unixSeconds + 330 * 60) * 1000);
 };
 ```
 
-### Issue 3: Real-Time Updates Stop After Panning
-**Cause**: WebSocket subscription lost or `update()` called with old timestamp
-**Solution**:
+### 4. Implement Caching
+
 ```javascript
-// Ensure timestamp is current when calling update()
-const chartBar = {
-  time: Math.floor(Date.now() / 1000), // Always use current time
-  open: tick.ltp,
-  high: tick.ltp,
-  low: tick.ltp,
-  close: tick.ltp,
-};
-this.candlestickSeries.update(chartBar);
+// Cache by symbol, interval, and date range
+const cacheKey = `${symbol}_${interval}_${from}_${to}`;
+if (cache.has(cacheKey)) {
+    return cache.get(cacheKey);
+}
 ```
 
-### Issue 4: `/getData` Request Fails with 401
-**Cause**: Missing or invalid authentication headers
-**Solution**:
-```javascript
-// Ensure all required headers are present
-const headers = {
-  'Content-Type': 'application/json',
-  'Auth': AUTH_TOKEN,           // Valid JWT
-  'Authorization': SIGNATURE,   // Correct signature hash
-  'Bid': 'DHN1804',            // Broker ID
-  'Cid': CLIENT_ID,            // Client ID
-  'Src': 'T'                   // Source (TradingView)
-};
-```
+### 5. Sort Bars After Processing
 
-### Issue 5: Chart Flickers When Setting New Data
-**Cause**: Extreme zoom levels or too many bars
-**Solution**:
 ```javascript
-// Limit historical data in memory
-const MAX_BARS = 2000;
-const trimData = (data) => {
-  if (data.length <= MAX_BARS) return data;
-  return data.slice(-MAX_BARS); // Keep most recent MAX_BARS
-};
-
-this.candlestickSeries.setData(trimData(combinedData));
+// Always sort chronologically before returning
+bars.sort((a, b) => a.time - b.time);
 ```
 
 ---
@@ -756,43 +510,54 @@ this.candlestickSeries.setData(trimData(combinedData));
 
 ### Key Takeaways
 
-1. **Initial Load**: Use `/getData` → `setData()` for bulk historical data (typically 1 month)
-2. **Real-Time**: Use WebSocket → `update()` for live price ticks (minimal overhead)
-3. **Pan Left**: Detect viewport shift → Fetch older `/getData` → Merge → `setData()` with combined dataset
-4. **Method Selection**: `setData()` for complete datasets, `update()` for single bars
-5. **Performance**: Debounce pan requests, cache data, limit bars in memory, validate continuity
+1. **Minimum 7-Day Window**: Always fetch at least 7 days to reduce API calls
+2. **Midnight Normalization**: Remove time component from all timestamps
+3. **IST Offset Management**: Add +330 minutes (5.5 hours) for IST timezone
+4. **Smart Caching**: Store up to 31 days with date-keyed lookup
+5. **No Event Subscription**: Pre-calculate ranges instead of reacting to pan events
 
-### The Flow
+### The Real Flow
+
 ```
-Chart Opens
+TradingView requests bars
   ↓
-Load 1 month history via /getData
+Calculate minimum 7-day range
   ↓
-Display with setData()
+Normalize to midnight
   ↓
-Connect WebSocket
+Apply IST offset
   ↓
-Real-time updates via update()
+Check cache
   ↓
-User pans left
+POST to /getData (if not cached)
   ↓
-Detect pan event
+Process arrays into bar objects
   ↓
-Fetch older data via /getData
+Sort chronologically
   ↓
-Merge with existing data
+Update cache
   ↓
-Re-render with setData()
-  ↓
-Continue real-time updates
+Return to TradingView
 ```
+
+### What's Different from Assumptions
+
+❌ **NOT USED**: `subscribeVisibleLogicalRangeChange()` for detecting pans  
+❌ **NOT USED**: `update()` method for historical data  
+❌ **NOT USED**: Separate "pan left" detection logic  
+
+✅ **ACTUALLY USED**: Pre-calculated minimum 7-day windows  
+✅ **ACTUALLY USED**: Midnight-normalized timestamps  
+✅ **ACTUALLY USED**: 31-day cache with date keys  
+✅ **ACTUALLY USED**: IST offset management throughout  
 
 ---
 
-**Document Version**: 1.0  
-**Created**: 2025-11-23  
-**Status**: Reference Documentation  
+**Document Version**: 2.0 (Reverse-Engineered)  
+**Created**: 2025-11-24  
+**Based On**: `bundle2.1.37.js` Class `Dn` analysis  
+**Status**: Production Implementation Reference  
+
 **Related Files**:
-- `DHAN_CHART_INTEGRATION_GUIDE.md` – Complete integration details
-- `websocket_analysis_summary.md` – WebSocket protocol details
-- `DHAN_PROXY_HANDOVER.md` – Development proxy setup
+- `GETBARS_IMPLEMENTATION_ANALYSIS.md` – Source analysis
+- `TIMEZONE_FIX_SUMMARY.md` – Timezone handling details

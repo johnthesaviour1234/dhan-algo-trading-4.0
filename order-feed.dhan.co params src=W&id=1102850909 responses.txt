@@ -1,0 +1,45 @@
+GET wss://order-feed.dhan.co/?src=W&id=1102850909 HTTP/1.1
+Host: order-feed.dhan.co
+Connection: Upgrade
+Pragma: no-cache
+Cache-Control: no-cache
+User-Agent: Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36
+Upgrade: websocket
+Origin: https://web.dhan.co
+Sec-WebSocket-Version: 13
+Accept-Encoding: gzip, deflate, br, zstd
+Accept-Language: en-GB,en-US;q=0.9,en;q=0.8
+Sec-WebSocket-Key: j/yd6KQXRVcsxhe2V5ur/w==
+Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits
+
+payload:
+
+src=W&id=1102850909
+
+response headers:
+
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: MJ7MEX9GozlwWTP1MEX3hzMxrEs=
+
+
+messages:
+
+first message sent 703B = KmkAMTEwMjg1MDkwOQAAAAAAAAAAAAAAAAAAAAAAAAAANDA4ODI3YTViMDZlNDc2NGFkMGMwM2JlYzhmMjY3YjYAAAAAAAAAAAAAAAAAAAAAAABXAAAAAAAAAAAAOTk4OTQ5NTkyMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+
+message we recieved after successful order placement and execution :
+first message we recieved = {"Data":{"msg_code":23,"msg_len":1056,"exchange":"NSE","segment":"E","source":"W","security_id":"14366","client_id":"1102850909","exch_order_no":"1100000032471839","order_no":"34125112418233","product":"I","txn_type":"B","order_type":"MKT","validity":"DAY","disc_quantity":0,"dq_qty_rem":0,"remaining_quantity":1,"quantity":1,"traded_qty":0,"price":0,"trigger_price":0,"serial_no":1,"traded_price":0,"avg_traded_price":0,"algo_ord_no":0,"strategy_id":0,"off_mkt_flag":"0","order_date_time":"2025-11-24 11:42:24","exch_order_time":"2025-11-24 11:42:24","last_updated_time":"2025-11-24 11:42:24","remarks":"NR","mkt_type":"NL","reason_description":"CONFIRMED","leg_no":1,"mkt_pro_flag":"N","mkt_pro_value":0,"participant_type":"B","settlor":"90133","GTCFlag":"N","encash_flag":"N","pan_no":"PWWPS5212K","group_id":34,"instrument":"EQUITY","symbol":"IDEA","product_name":"INTRADAY","status":"Pending","lot_size":1,"fSLTrail":0,"trailing_jump":0,"fSLTickValue":0,"sl_abstick_value":0,"fPRTickValue":0,"pr_abstick_value":0,"strike_price":0,"expiry_date":"0001-01-01 00:00:00","opt_type":"XX","display_name":"Vodafone Idea","isin":"INE669E01016","series":"EQ","good_till_days_date":"2025-11-24","sIntrumentType":"EQ","ref_ltp":10.09,"tick_size":0.01,"algo_id":"0","sPlatform":"chartFull","sChannel":"NA","multiplier":1,"underlying_symbol":"IDEA"},"Type":"order_alert"}
+
+second message we recieved = {"Data":{"msg_code":23,"msg_len":1056,"exchange":"NSE","segment":"E","source":"W","security_id":"14366","client_id":"1102850909","exch_order_no":"1100000032471839","order_no":"34125112418233","product":"I","txn_type":"B","order_type":"MKT","validity":"DAY","disc_quantity":0,"dq_qty_rem":0,"remaining_quantity":0,"quantity":1,"traded_qty":1,"price":0,"trigger_price":0,"serial_no":2,"traded_price":10.09,"avg_traded_price":10.09,"algo_ord_no":0,"strategy_id":0,"off_mkt_flag":"0","order_date_time":"2025-11-24 11:42:24","exch_order_time":"2025-11-24 11:42:24","last_updated_time":"2025-11-24 11:42:24","remarks":"NR","mkt_type":"NL","reason_description":"TRADE CONFIRMED","leg_no":1,"mkt_pro_flag":"N","mkt_pro_value":0,"participant_type":"B","settlor":"90133","GTCFlag":"N","encash_flag":"N","pan_no":"PWWPS5212K","group_id":34,"instrument":"EQUITY","symbol":"IDEA","product_name":"INTRADAY","status":"Traded","lot_size":1,"fSLTrail":0,"trailing_jump":0,"fSLTickValue":0,"sl_abstick_value":0,"fPRTickValue":0,"pr_abstick_value":0,"strike_price":0,"expiry_date":"0001-01-01 00:00:00","opt_type":"XX","display_name":"Vodafone Idea","isin":"INE669E01016","series":"EQ","good_till_days_date":"2025-11-24","sIntrumentType":"EQ","ref_ltp":10.09,"tick_size":0.01,"algo_id":"0","sPlatform":"chartFull","sChannel":"NA","multiplier":1,"underlying_symbol":"IDEA"},"Type":"order_alert"}
+
+third message we recieved = {"Data":{"msg_code":23,"msg_len":1056,"exchange":"NSE","segment":"E","source":"W","security_id":"14366","client_id":"1102850909","exch_order_no":"1100000032484707","order_no":"4125112418813","product":"I","txn_type":"S","order_type":"MKT","validity":"DAY","disc_quantity":0,"dq_qty_rem":0,"remaining_quantity":1,"quantity":1,"traded_qty":0,"price":0,"trigger_price":0,"serial_no":1,"traded_price":0,"avg_traded_price":0,"algo_ord_no":0,"strategy_id":0,"off_mkt_flag":"0","order_date_time":"2025-11-24 11:42:30","exch_order_time":"2025-11-24 11:42:30","last_updated_time":"2025-11-24 11:42:30","remarks":"NR","mkt_type":"NL","reason_description":"CONFIRMED","leg_no":1,"mkt_pro_flag":"N","mkt_pro_value":0,"participant_type":"B","settlor":"90133","GTCFlag":"N","encash_flag":"N","pan_no":"PWWPS5212K","group_id":4,"instrument":"EQUITY","symbol":"IDEA","product_name":"INTRADAY","status":"Pending","lot_size":1,"fSLTrail":0,"trailing_jump":0,"fSLTickValue":0,"sl_abstick_value":0,"fPRTickValue":0,"pr_abstick_value":0,"strike_price":0,"expiry_date":"0001-01-01 00:00:00","opt_type":"XX","display_name":"Vodafone Idea","isin":"INE669E01016","series":"EQ","good_till_days_date":"2025-11-24","sIntrumentType":"EQ","ref_ltp":10.08,"tick_size":0.01,"algo_id":"0","sPlatform":"chartFull","sChannel":"NA","multiplier":1,"underlying_symbol":"IDEA"},"Type":"order_alert"}
+
+forth message we recieved = {"Data":{"msg_code":23,"msg_len":1056,"exchange":"NSE","segment":"E","source":"W","security_id":"14366","client_id":"1102850909","exch_order_no":"1100000032484707","order_no":"4125112418813","product":"I","txn_type":"S","order_type":"MKT","validity":"DAY","disc_quantity":0,"dq_qty_rem":0,"remaining_quantity":0,"quantity":1,"traded_qty":1,"price":0,"trigger_price":0,"serial_no":2,"traded_price":10.08,"avg_traded_price":10.08,"algo_ord_no":0,"strategy_id":0,"off_mkt_flag":"0","order_date_time":"2025-11-24 11:42:30","exch_order_time":"2025-11-24 11:42:30","last_updated_time":"2025-11-24 11:42:30","remarks":"NR","mkt_type":"NL","reason_description":"TRADE CONFIRMED","leg_no":1,"mkt_pro_flag":"N","mkt_pro_value":0,"participant_type":"B","settlor":"90133","GTCFlag":"N","encash_flag":"N","pan_no":"PWWPS5212K","group_id":4,"instrument":"EQUITY","symbol":"IDEA","product_name":"INTRADAY","status":"Traded","lot_size":1,"fSLTrail":0,"trailing_jump":0,"fSLTickValue":0,"sl_abstick_value":0,"fPRTickValue":0,"pr_abstick_value":0,"strike_price":0,"expiry_date":"0001-01-01 00:00:00","opt_type":"XX","display_name":"Vodafone Idea","isin":"INE669E01016","series":"EQ","good_till_days_date":"2025-11-24","sIntrumentType":"EQ","ref_ltp":10.08,"tick_size":0.01,"algo_id":"0","sPlatform":"chartFull","sChannel":"NA","multiplier":1,"underlying_symbol":"IDEA"},"Type":"order_alert"}
+
+
+=============
+after successful handshake we will recieve the all the order updates through this websocket as shown above
+
+
+now our task is to update the chrome extension to capture the 703B and store it to the backend make sure the back end has sperate endpoint for this api cause the previous data that we are capturing has common variable we need to make sure we are not mixing up both. then we need to update the frontend to fetch the stored 703B data and use it to create websocket connection and parse the response data (shown above) and update the frontend UI accordingly

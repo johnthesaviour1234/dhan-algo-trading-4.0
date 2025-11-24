@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import { TradingChart } from './components/TradingChart';
 import { BacktestingPanel } from './components/BacktestingPanel';
+import { OrderManagementPanel } from './components/OrderManagementPanel';
 
 export default function App() {
   return (
@@ -9,9 +9,10 @@ export default function App() {
         <h1 className="text-gray-900">Algorithmic Trading Platform</h1>
         <p className="text-gray-600">Backtesting & Live Trading</p>
       </header>
-      
+
       <main className="max-w-[1600px] mx-auto p-6 space-y-6">
         <TradingChart />
+        <OrderManagementPanel />
         <BacktestingPanel />
       </main>
     </div>

@@ -1,0 +1,203 @@
+import { CandlestickData, Time } from 'lightweight-charts';
+
+/**
+ * Chart Data Fetcher - Based on reverse-engineered Dhan implementation
+ * Implements the getBars mechanism from bundle2.1.37.js Class Dn
+ */
+export class ChartDataFetcher {
+    private cache: Map<string, CandlestickData[]> = new Map();
+    private readonly IST_OFFSET_MINUTES = 330; // +5:30 hours
+    private readonly MIN_DAYS = 7;
+    private readonly SECONDS_PER_DAY = 86400;
+    private readonly WEEK_SECONDS = 604800;
+
+    /**
+     * Calculate difference between two dates in days
+     * Based on getDayDiff from Class Dn
+     */
+    private getDayDiff(dateA: Date, dateB: Date): number {
+        const diff = dateA.getTime() - dateB.getTime();
+        return Math.floor(diff / (this.SECONDS_PER_DAY * 1000));
+    }
+
+    /**
+     * Normalize timestamp to midnight (remove time component)
+     */
+    private normalizeToMidnight(unixSeconds: number): Date {
+        return new Date(new Date(unixSeconds * 1000).toDateString());
+    }
+
+    /**
+     * Ensure minimum 7-day data window
+     * Based on getChartsRange from Class Dn
+     */
+    private ensureMinimumRange(from: number, to: number): { from: number; to: number } {
+        const currentDate = new Date(new Date().toDateString());
+
+        // Normalize dates to midnight
+        let startDate = this.normalizeToMidnight(from);
+        let endDate = this.normalizeToMidnight(to);
+
+        let adjustedFrom = Math.floor(startDate.getTime() / 1000);
+        let adjustedTo = Math.floor(endDate.getTime() / 1000);
+
+        // Calculate day differences
+        const daysFrom = this.getDayDiff(currentDate, startDate);
+        const daysTo = this.getDayDiff(currentDate, endDate);
+
+        // Adjust for today
+        if (daysTo === 0) {
+            adjustedTo += this.SECONDS_PER_DAY;
+        }
+
+        // Ensure minimum 7-day window
+        if (daysFrom - daysTo < this.MIN_DAYS) {
+            adjustedFrom -= this.WEEK_SECONDS;
+        }
+
+        return { from: adjustedFrom, to: adjustedTo };
+    }
+
+    /**
+     * Apply IST offset for request construction
+     */
+    private applyISTOffset(unixSeconds: number): Date {
+        return new Date((unixSeconds + this.IST_OFFSET_MINUTES * 60) * 1000);
+    }
+
+    /**
+     * Generate cache key
+     */
+    private getCacheKey(symbol: string, interval: string, from: number, to: number): string {
+        return `${symbol}_${interval}_${from}_${to}`;
+    }
+
+    /**
+     * Process API response into chart bars
+     * Based on response processing from Class Dn
+     */
+    private processBars(response: any): CandlestickData[] {
+        if (!response.success || !response.data?.c || !response.data.c.length) {
+            return [];
+        }
+
+        const data = response.data;
+        const bars: CandlestickData[] = [];
+
+        for (let i = 0; i < data.c.length; i++) {
+            // Use timestamps directly from API (already in Unix seconds)
+            bars.push({
+                time: data.t[i] as Time,
+                open: parseFloat(data.o[i]),
+                high: parseFloat(data.h[i]),
+                low: parseFloat(data.l[i]),
+                close: parseFloat(data.c[i]),
+            });
+        }
+
+        // Sort chronologically
+        bars.sort((a, b) => (a.time as number) - (b.time as number));
+
+        return bars;
+    }
+
+    /**
+     * Main getBars method - fetches data with caching and minimum window enforcement
+     * Based on getBars from Class Dn
+     */
+    async getBars(
+        symbol: string,
+        exchange: string,
+        segment: string,
+        secId: number,
+        from: number,
+        to: number,
+        interval: string
+    ): Promise<CandlestickData[]> {
+        // 1. Enforce minimum 7-day range
+        const adjusted = this.ensureMinimumRange(from, to);
+
+        console.log(`📊 getBars: Original range ${from} to ${to}`);
+        console.log(`📊 getBars: Adjusted range ${adjusted.from} to ${adjusted.to} (min 7 days enforced)`);
+
+        // 2. Check cache
+        const cacheKey = this.getCacheKey(symbol, interval, adjusted.from, adjusted.to);
+        if (this.cache.has(cacheKey)) {
+            console.log('✅ Returning cached data');
+            return this.cache.get(cacheKey)!;
+        }
+
+        // 3. Apply IST offset for request times
+        const startTime = this.applyISTOffset(adjusted.from);
+        startTime.setHours(0, 0, 1, 0);
+
+        const endTime = this.applyISTOffset(adjusted.to);
+        endTime.setHours(23, 59, 59, 999);
+
+        // 4. Build request payload
+        const payload = {
+            EXCH: exchange,
+            SEG: segment,
+            INST: 'EQUITY',
+            SEC_ID: secId,
+            START: Math.floor(startTime.getTime() / 1000),
+            END: Math.floor(endTime.getTime() / 1000),
+            START_TIME: startTime.toString(),
+            END_TIME: endTime.toString(),
+            INTERVAL: interval,
+        };
+
+        console.log('📤 Fetching from API with payload:', payload);
+
+        try {
+            // 5. Fetch from backend proxy
+            const response = await fetch('http://localhost:3001/api/getData', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                throw new Error(`API responded with ${response.status}`);
+            }
+
+            const json = await response.json();
+
+            // 6. Process response
+            const bars = this.processBars(json);
+
+            console.log(`✅ Received ${bars.length} bars from API`);
+
+            // 7. Cache result
+            if (bars.length > 0) {
+                this.cache.set(cacheKey, bars);
+            }
+
+            return bars;
+        } catch (error) {
+            console.error('❌ Error fetching bars:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Clear cache for a specific symbol or all cache
+     */
+    clearCache(symbol?: string): void {
+        if (symbol) {
+            // Clear cache for specific symbol
+            const keysToDelete: string[] = [];
+            this.cache.forEach((_, key) => {
+                if (key.startsWith(`${symbol}_`)) {
+                    keysToDelete.push(key);
+                }
+            });
+            keysToDelete.forEach(key => this.cache.delete(key));
+        } else {
+            // Clear all cache
+            this.cache.clear();
+        }
+    }
+}

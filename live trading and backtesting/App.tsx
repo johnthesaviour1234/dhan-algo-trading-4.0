@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { TradingChart } from './components/TradingChart';
+import { OrderManagementPanel } from './components/OrderManagementPanel';
 import { BacktestingPanel } from './components/BacktestingPanel';
 
 export default function App() {
@@ -12,6 +13,7 @@ export default function App() {
       
       <main className="max-w-[1600px] mx-auto p-6 space-y-6">
         <TradingChart />
+        <OrderManagementPanel />
         <BacktestingPanel />
       </main>
     </div>

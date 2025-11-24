@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, Time } from 'lightweight-charts';
+import { ChartDataFetcher } from '../lib/ChartDataFetcher';
 
 export function TradingChart() {
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -7,63 +8,23 @@ export function TradingChart() {
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Keep track of the earliest loaded time to fetch older data
+  // Data fetcher instance
+  const dataFetcherRef = useRef<ChartDataFetcher>(new ChartDataFetcher());
+
+  // Track all loaded bars for efficient merging
+  const allBarsRef = useRef<CandlestickData[]>([]);
+
+  // Track earliest loaded time
   const earliestTimeRef = useRef<number>(Math.floor(Date.now() / 1000));
 
-  const fetchData = useCallback(async (start: number, end: number) => {
-    setIsLoading(true);
-    try {
-      // Construct payload for Dhan API
-      // Note: Using hardcoded symbol details for demo as per user request
-      const payload = {
-        "EXCH": "NSE",
-        "SEG": "E",
-        "INST": "EQUITY",
-        "SEC_ID": 14366, // Example ID
-        "START": start,
-        "END": end,
-        "START_TIME": new Date(start * 1000).toString(),
-        "END_TIME": new Date(end * 1000).toString(),
-        "INTERVAL": "1" // 1 minute candles
-      };
-
-      const response = await fetch('http://localhost:3001/api/getData', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch data');
-      }
-
-      const json = await response.json();
-
-      if (json.success && json.data) {
-        const { t, o, h, l, c } = json.data;
-
-        // Dhan API returns Unix timestamps directly (seconds since 1970)
-        // These represent IST times, so no conversion needed
-        const formattedData: CandlestickData[] = t.map((unixTime: number, index: number) => ({
-          time: unixTime as Time,
-          open: o[index],
-          high: h[index],
-          low: l[index],
-          close: c[index],
-        }));
-
-        return formattedData;
-      }
-      return [];
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      return [];
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  // Symbol configuration
+  const symbolConfig = {
+    symbol: 'RELIANCE',
+    exchange: 'NSE',
+    segment: 'E',
+    secId: 14366,
+    interval: '1', // 1 minute
+  };
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -124,17 +85,38 @@ export function TradingChart() {
 
     seriesRef.current = candlestickSeries;
 
-    // Initial load: Fetch last 7 days
-    const now = Math.floor(Date.now() / 1000);
-    const sevenDaysAgo = now - (7 * 24 * 60 * 60);
+    // Initial load using getBars (will fetch minimum 7 days)
+    const loadInitialData = async () => {
+      setIsLoading(true);
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const sevenDaysAgo = now - (7 * 24 * 60 * 60);
 
-    fetchData(sevenDaysAgo, now).then(data => {
-      if (data.length > 0) {
-        candlestickSeries.setData(data);
-        earliestTimeRef.current = data[0].time as number;
-        chart.timeScale().fitContent();
+        const bars = await dataFetcherRef.current.getBars(
+          symbolConfig.symbol,
+          symbolConfig.exchange,
+          symbolConfig.segment,
+          symbolConfig.secId,
+          sevenDaysAgo,
+          now,
+          symbolConfig.interval
+        );
+
+        if (bars.length > 0) {
+          candlestickSeries.setData(bars);
+          allBarsRef.current = bars;
+          earliestTimeRef.current = bars[0].time as number;
+          chart.timeScale().fitContent();
+          console.log(`📊 Initial load: ${bars.length} bars`);
+        }
+      } catch (error) {
+        console.error('Failed to load initial data:', error);
+      } finally {
+        setIsLoading(false);
       }
-    });
+    };
+
+    loadInitialData();
 
     // Handle resize
     const handleResize = () => {
@@ -147,35 +129,58 @@ export function TradingChart() {
 
     window.addEventListener('resize', handleResize);
 
-    // Pagination / Infinite Scroll Logic
+    // Panning logic: Fetch older data when scrolling left
+    let isFetching = false;
+
     chart.timeScale().subscribeVisibleLogicalRangeChange(async (newVisibleLogicalRange) => {
-      if (!newVisibleLogicalRange) return;
+      if (!newVisibleLogicalRange || isFetching) return;
 
-      // If we are near the start (left side) of the data
-      if (newVisibleLogicalRange.from < 10 && !isLoading) {
-        const currentEarliest = earliestTimeRef.current;
-        const newEnd = currentEarliest;
-        const newStart = newEnd - (7 * 24 * 60 * 60); // Fetch previous 7 days
+      // Check if we're viewing data near the start
+      if (newVisibleLogicalRange.from < 50) {
+        isFetching = true;
+        setIsLoading(true);
 
-        console.log('Fetching older data...');
-        const newData = await fetchData(newStart, newEnd);
+        try {
+          const currentEarliest = earliestTimeRef.current;
+          const newEnd = currentEarliest;
+          const newStart = newEnd - (7 * 24 * 60 * 60); // Fetch previous 7 days
 
-        if (newData.length > 0) {
-          // Merge new data with existing data
-          // Note: Lightweight charts doesn't have a simple 'prepend' method that maintains state perfectly
-          // We might need to get all current data and reset, or use update if overlapping?
-          // For simplicity in this demo, we'll just setData with combined array if possible, 
-          // but setData overwrites. 
-          // A better approach for real apps is managing a data store state and updating the series.
+          console.log('⬅️  Panning left - fetching older data...');
 
-          // However, to keep it simple and working:
-          // We need to maintain the full dataset in a ref or state if we want to append efficiently.
-          // But here, let's just assume we prepend and reset data.
-          // NOTE: This resets the view, which is jarring. 
-          // Ideally we use `setData` with the full sorted array.
+          const olderBars = await dataFetcherRef.current.getBars(
+            symbolConfig.symbol,
+            symbolConfig.exchange,
+            symbolConfig.segment,
+            symbolConfig.secId,
+            newStart,
+            newEnd,
+            symbolConfig.interval
+          );
 
-          // Let's fetch the current data from the series? No direct getter.
-          // We should track data in a ref.
+          if (olderBars.length > 0) {
+            // Merge older data with existing data
+            // Remove any overlap (bars with same timestamp)
+            const lastOldTime = olderBars[olderBars.length - 1].time as number;
+            const filteredCurrent = allBarsRef.current.filter(
+              bar => (bar.time as number) > lastOldTime
+            );
+
+            const combinedBars = [...olderBars, ...filteredCurrent];
+
+            // Update chart with merged data
+            candlestickSeries.setData(combinedBars);
+            allBarsRef.current = combinedBars;
+            earliestTimeRef.current = olderBars[0].time as number;
+
+            console.log(`✅ Extended history by ${olderBars.length} bars (total: ${combinedBars.length})`);
+          } else {
+            console.log('📭 No older data available');
+          }
+        } catch (error) {
+          console.error('❌ Error fetching older data:', error);
+        } finally {
+          setIsLoading(false);
+          isFetching = false;
         }
       }
     });
@@ -184,7 +189,7 @@ export function TradingChart() {
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, [fetchData]); // Re-create chart if fetchData changes (it shouldn't)
+  }, []); // No dependencies - runs once on mount
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
