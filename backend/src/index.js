@@ -201,6 +201,12 @@ wss.on('connection', async (frontendWs) => {
     const WebSocket = (await import('ws')).default;
 
     console.log('🔗 Connecting to Dhan:', orderFeedData.url);
+    console.log('📋 WebSocket Connection Details:');
+    console.log('   URL:', orderFeedData.url);
+    console.log('   Host:', orderFeedData.host);
+    console.log('   Origin:', orderFeedData.origin);
+    console.log('   User-Agent:', orderFeedData.userAgent || 'Mozilla/5.0');
+    console.log('   Query Params:', orderFeedData.queryParams);
 
     // Connect to real Dhan WebSocket with proper headers
     dhanWs = new WebSocket(orderFeedData.url, {
@@ -210,6 +216,8 @@ wss.on('connection', async (frontendWs) => {
         'User-Agent': orderFeedData.userAgent || 'Mozilla/5.0'
       }
     });
+
+    console.log('✅ WebSocket object created, waiting for connection...');
 
     // Handle Dhan connection open
     dhanWs.on('open', () => {
@@ -226,6 +234,7 @@ wss.on('connection', async (frontendWs) => {
           type: 'connection_ready',
           message: 'Connected to order feed'
         }));
+        console.log('📤 Sent connection_ready message to frontend');
       } catch (error) {
         console.error('❌ Error sending handshake:', error);
       }
@@ -234,45 +243,69 @@ wss.on('connection', async (frontendWs) => {
     // Forward messages from Dhan to frontend
     dhanWs.on('message', (data) => {
       try {
+        console.log('\n📥 ===== MESSAGE FROM DHAN =====');
+        console.log('   Data type:', typeof data);
+        console.log('Data length:', data.length || data.byteLength);
+        console.log('   Frontend WS state:', frontendWs.readyState, '(1=OPEN, 2=CLOSING, 3=CLOSED)');
+
         // Check if frontend connection is still open
         if (frontendWs.readyState === 1) { // WebSocket.OPEN = 1
-          // Forward the message as-is (binary or text)
-          frontendWs.send(data);
-
-          // Log message type (for debugging)
+          // Log message content
           if (data.length === 0) {
-            console.log('📥 Heartbeat from Dhan (empty message)');
+            console.log('   Content: <empty heartbeat>');
           } else {
             try {
               const parsed = JSON.parse(data.toString());
+              const preview = JSON.stringify(parsed, null, 2).substring(0, 300);
+              console.log('   Content (JSON):', preview + '...');
               if (parsed.Type === 'order_alert') {
-                console.log('📥 Order alert:', parsed.Data?.symbol, parsed.Data?.status);
+                console.log('   📊 Order Alert:', parsed.Data?.symbol, parsed.Data?.status);
               }
             } catch (e) {
-              // Not JSON, might be binary
-              console.log('📥 Binary message from Dhan:', data.length, 'bytes');
+              console.log('   Content (Binary):', data.length, 'bytes');
+              console.log('   First 50 bytes:', data.slice(0, 50));
             }
           }
+
+          // Forward the message as-is (binary or text)
+          frontendWs.send(data);
+          console.log('   ✅ Message forwarded to frontend');
+        } else {
+          console.log('   ⚠️ Frontend not connected, message NOT forwarded');
+          console.log('   Frontend state:', frontendWs.readyState);
         }
+        console.log('===== END MESSAGE =====\n');
       } catch (error) {
         console.error('❌ Error forwarding message to frontend:', error);
+        console.error('   Error stack:', error.stack);
       }
     });
 
     // Forward messages from frontend to Dhan (e.g., heartbeats)
     frontendWs.on('message', (data) => {
       try {
+        console.log('\n📤 ===== MESSAGE FROM FRONTEND =====');
+        console.log('   Data type:', typeof data);
+        console.log('   Data length:', data.length || data.byteLength);
+        console.log('   Dhan WS state:', dhanWs ? dhanWs.readyState : 'null', '(1=OPEN)');
+
         if (dhanWs && dhanWs.readyState === 1) { // WebSocket.OPEN = 1
           dhanWs.send(data);
 
           if (data.length === 0 || (typeof data === 'string' && data === '')) {
-            console.log('📤 Heartbeat sent to Dhan');
+            console.log('   Content: <heartbeat>');
+            console.log('   ✅ Heartbeat forwarded to Dhan');
           } else {
-            console.log('📤 Message sent to Dhan:', data.length, 'bytes');
+            console.log('   Content:', data.toString().substring(0, 200));
+            console.log('   ✅ Message forwarded to Dhan:', data.length, 'bytes');
           }
+        } else {
+          console.log('   ⚠️ Dhan not connected, message NOT forwarded');
         }
+        console.log('===== END MESSAGE =====\n');
       } catch (error) {
         console.error('❌ Error forwarding message to Dhan:', error);
+        console.error('   Error stack:', error.stack);
       }
     });
 
