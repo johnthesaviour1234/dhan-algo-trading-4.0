@@ -100,47 +100,73 @@ interface ProcessedOrder {
 export function OrderManagementPanel() {
   const [orders, setOrders] = useState<ProcessedOrder[]>([]);
   const [filter, setFilter] = useState<'all' | 'pending' | 'traded' | 'rejected'>('all');
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting');
 
-  // Simulate receiving order messages in real-time
+  // WebSocket connection to backend order feed proxy
   useEffect(() => {
-    // Mock data based on the provided messages
-    const mockMessages: OrderMessage[] = [
-      {
-        Data: {
-          msg_code: 23, msg_len: 1056, exchange: "NSE", segment: "E", source: "W",
-          security_id: "14366", client_id: "1102850909", exch_order_no: "1100000032471839",
-          order_no: "34125112418233", product: "I", txn_type: "B", order_type: "MKT",
-          validity: "DAY", disc_quantity: 0, dq_qty_rem: 0, remaining_quantity: 1,
-          quantity: 1, traded_qty: 0, price: 0, trigger_price: 0, serial_no: 1,
-          traded_price: 0, avg_traded_price: 0, algo_ord_no: 0, strategy_id: 0,
-          off_mkt_flag: "0", order_date_time: "2025-11-24 11:42:24",
-          exch_order_time: "2025-11-24 11:42:24", last_updated_time: "2025-11-24 11:42:24",
-          remarks: "NR", mkt_type: "NL", reason_description: "CONFIRMED", leg_no: 1,
-          mkt_pro_flag: "N", mkt_pro_value: 0, participant_type: "B", settlor: "90133",
-          GTCFlag: "N", encash_flag: "N", pan_no: "PWWPS5212K", group_id: 34,
-          instrument: "EQUITY", symbol: "IDEA", product_name: "INTRADAY", status: "Pending",
-          lot_size: 1, fSLTrail: 0, trailing_jump: 0, fSLTickValue: 0, sl_abstick_value: 0,
-          fPRTickValue: 0, pr_abstick_value: 0, strike_price: 0, expiry_date: "0001-01-01 00:00:00",
-          opt_type: "XX", display_name: "Vodafone Idea", isin: "INE669E01016", series: "EQ",
-          good_till_days_date: "2025-11-24", sIntrumentType: "EQ", ref_ltp: 10.09,
-          tick_size: 0.01, algo_id: "0", sPlatform: "chartFull", sChannel: "NA",
-          multiplier: 1, underlying_symbol: "IDEA"
-        },
-        Type: "order_alert"
-      }
-    ];
+    console.log('🔌 Connecting to order feed WebSocket...');
+    const ws = new WebSocket('ws://localhost:3001/ws/orderFeed');
 
-    // Simulate real-time order updates
-    let orderIndex = 0;
-    const interval = setInterval(() => {
-      if (orderIndex < 10) { // Generate 10 mock orders
-        const newOrder = generateMockOrder(orderIndex);
-        processOrderMessage(newOrder);
-        orderIndex++;
-      }
-    }, 5000); // New order every 5 seconds
+    ws.onopen = () => {
+      console.log('✅ Connected to order feed');
+      setConnectionStatus('connected');
+    };
 
-    return () => clearInterval(interval);
+    ws.onmessage = (event) => {
+      try {
+        // Check if it's text (JSON) or binary
+        if (typeof event.data === 'string') {
+          const message = JSON.parse(event.data);
+
+          // Handle connection ready message
+          if (message.type === 'connection_ready') {
+            console.log('✅', message.message);
+            return;
+          }
+
+          // Handle error messages
+          if (message.error) {
+            console.error('❌ Order feed error:', message.error);
+            setConnectionStatus('error');
+            return;
+          }
+
+          // Handle order alerts
+          if (message.Type === 'order_alert' && message.Data) {
+            console.log('📥 Order alert received:', message.Data.symbol, message.Data.status);
+            processOrderMessage(message);
+          }
+        } else {
+          // Handle heartbeat (empty binary messages)
+          console.log('📥 Heartbeat received');
+        }
+      } catch (error) {
+        console.error('❌ Error processing message:', error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('❌ WebSocket error:', error);
+      setConnectionStatus('error');
+    };
+
+    ws.onclose = () => {
+      console.log('🔒 Disconnected from order feed');
+      setConnectionStatus('disconnected');
+    };
+
+    // Send heartbeat every 30 seconds to keep connection alive
+    const heartbeat = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(''); // Empty message for heartbeat
+        console.log('📤 Heartbeat sent');
+      }
+    }, 30000);
+
+    return () => {
+      clearInterval(heartbeat);
+      ws.close();
+    };
   }, []);
 
   const processOrderMessage = (message: OrderMessage) => {
@@ -288,9 +314,8 @@ export function OrderManagementPanel() {
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      <span className={`inline-flex px-2 py-1 rounded text-white text-xs ${
-                        order.txn_type === 'B' ? 'bg-green-600' : 'bg-red-600'
-                      }`}>
+                      <span className={`inline-flex px-2 py-1 rounded text-white text-xs ${order.txn_type === 'B' ? 'bg-green-600' : 'bg-red-600'
+                        }`}>
                         {order.txn_type === 'B' ? 'Buy' : 'Sell'}
                       </span>
                     </td>
@@ -350,11 +375,10 @@ function FilterButton({ active, onClick, label, count }: FilterButtonProps) {
   return (
     <button
       onClick={onClick}
-      className={`px-4 py-2 rounded-lg border transition-colors ${
-        active
-          ? 'bg-blue-50 border-blue-300 text-blue-700'
-          : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-      }`}
+      className={`px-4 py-2 rounded-lg border transition-colors ${active
+        ? 'bg-blue-50 border-blue-300 text-blue-700'
+        : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+        }`}
     >
       {label} <span className="ml-1">({count})</span>
     </button>
@@ -389,95 +413,4 @@ function StatusBadge({ status }: StatusBadgeProps) {
       <span className="text-xs">{config.label}</span>
     </div>
   );
-}
-
-// Mock order generator for demo purposes
-function generateMockOrder(index: number): OrderMessage {
-  const symbols = ['IDEA', 'RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICI', 'SBIN', 'WIPRO'];
-  const displayNames = ['Vodafone Idea', 'Reliance Industries', 'Tata Consultancy Services', 'Infosys', 'HDFC Bank', 'ICICI Bank', 'State Bank of India', 'Wipro'];
-  const statuses = ['Pending', 'Traded', 'Rejected', 'Pending', 'Traded'];
-  const txnTypes = ['B', 'S'];
-  
-  const symbolIndex = Math.floor(Math.random() * symbols.length);
-  const txnType = txnTypes[Math.floor(Math.random() * txnTypes.length)];
-  const status = statuses[Math.floor(Math.random() * statuses.length)];
-  const quantity = Math.floor(Math.random() * 100) + 1;
-  const traded_qty = status === 'Traded' ? quantity : (status === 'Pending' ? 0 : Math.floor(quantity / 2));
-  const price = parseFloat((Math.random() * 1000 + 50).toFixed(2));
-  
-  const now = new Date();
-  const orderTime = `${now.toISOString().split('T')[0]} ${now.toTimeString().split(' ')[0]}`;
-
-  return {
-    Data: {
-      msg_code: 23,
-      msg_len: 1056,
-      exchange: "NSE",
-      segment: "E",
-      source: "W",
-      security_id: `${14300 + index}`,
-      client_id: "1102850909",
-      exch_order_no: `1100000032${471839 + index}`,
-      order_no: `${34125112418233 + index}`,
-      product: "I",
-      txn_type: txnType,
-      order_type: "MKT",
-      validity: "DAY",
-      disc_quantity: 0,
-      dq_qty_rem: 0,
-      remaining_quantity: quantity - traded_qty,
-      quantity: quantity,
-      traded_qty: traded_qty,
-      price: 0,
-      trigger_price: 0,
-      serial_no: status === 'Traded' ? 2 : 1,
-      traded_price: status === 'Traded' ? price : 0,
-      avg_traded_price: status === 'Traded' ? price : 0,
-      algo_ord_no: 0,
-      strategy_id: 0,
-      off_mkt_flag: "0",
-      order_date_time: orderTime,
-      exch_order_time: orderTime,
-      last_updated_time: orderTime,
-      remarks: "NR",
-      mkt_type: "NL",
-      reason_description: status === 'Traded' ? "TRADE CONFIRMED" : (status === 'Rejected' ? "ORDER REJECTED" : "CONFIRMED"),
-      leg_no: 1,
-      mkt_pro_flag: "N",
-      mkt_pro_value: 0,
-      participant_type: "B",
-      settlor: "90133",
-      GTCFlag: "N",
-      encash_flag: "N",
-      pan_no: "PWWPS5212K",
-      group_id: 34,
-      instrument: "EQUITY",
-      symbol: symbols[symbolIndex],
-      product_name: "INTRADAY",
-      status: status,
-      lot_size: 1,
-      fSLTrail: 0,
-      trailing_jump: 0,
-      fSLTickValue: 0,
-      sl_abstick_value: 0,
-      fPRTickValue: 0,
-      pr_abstick_value: 0,
-      strike_price: 0,
-      expiry_date: "0001-01-01 00:00:00",
-      opt_type: "XX",
-      display_name: displayNames[symbolIndex],
-      isin: "INE669E01016",
-      series: "EQ",
-      good_till_days_date: now.toISOString().split('T')[0],
-      sIntrumentType: "EQ",
-      ref_ltp: price,
-      tick_size: 0.01,
-      algo_id: "0",
-      sPlatform: "chartFull",
-      sChannel: "NA",
-      multiplier: 1,
-      underlying_symbol: symbols[symbolIndex]
-    },
-    Type: "order_alert"
-  };
 }

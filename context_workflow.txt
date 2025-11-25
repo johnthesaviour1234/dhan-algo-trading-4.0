@@ -1,0 +1,6 @@
+1) firstly get familier with the code base. know about complete project structure, language using, any coding rules if applicable or available etc.
+2) understand our current problem we are working on and all the related files thats dependend or gets effected or needs to be changed accordingly. how these files are connected, their relation ship and their imports etc.
+3) then start making changes while keeping the context of the project and the problem we are solving. and the solution in mind. 
+4) finally cross check if the edits are properly made or files are created etc. and create your own reflection based on all above.
+5) make sure only the files related to the problem we are working on is effected and remaining part of the codebase remains intact and uneffected.
+6) you can enhance this prompt to make yourself more clearly undersatandable if needed.

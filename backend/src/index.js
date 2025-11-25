@@ -15,6 +15,8 @@ app.use(express.json());
 // Store captured headers by type
 const headersStore = {
   getData: {},
+  orderFeed: {}, // WebSocket order feed headers  
+  orderFeedHandshake: {}, // 703B handshake message
   orders: {} // Future proofing
 };
 
@@ -145,43 +147,181 @@ const server = app.listen(PORT, () => {
   console.log(`🚀 Backend server running on http://localhost:${PORT}`);
 });
 
-// WebSocket server for real-time data
-const wss = new WebSocketServer({ server });
+// WebSocket Server for Order Feed Proxy
+const wss = new WebSocketServer({ noServer: true });
 
-wss.on('connection', (ws) => {
-  console.log('📡 Client connected to WebSocket');
+// Handle WebSocket upgrade requests
+server.on('upgrade', (request, socket, head) => {
+  console.log('📡 WebSocket upgrade request:', request.url);
 
-  // Send initial connection message
-  ws.send(JSON.stringify({ type: 'connected', message: 'WebSocket connected' }));
-
-  // Simulate real-time price updates
-  const priceInterval = setInterval(() => {
-    const mockPrice = {
-      type: 'price-update',
-      symbol: 'NIFTY',
-      time: Date.now() / 1000,
-      open: 19500 + Math.random() * 100,
-      high: 19600 + Math.random() * 100,
-      low: 19400 + Math.random() * 100,
-      close: 19550 + Math.random() * 100,
-      volume: Math.floor(Math.random() * 100000)
-    };
-
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify(mockPrice));
-    }
-  }, 1000);
-
-  ws.on('close', () => {
-    console.log('📴 Client disconnected from WebSocket');
-    clearInterval(priceInterval);
-  });
-
-  ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
-    clearInterval(priceInterval);
-  });
+  if (request.url === '/ws/orderFeed') {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
 });
+
+// Handle WebSocket connections
+wss.on('connection', async (frontendWs) => {
+  console.log('🔌 Frontend connected to order feed proxy');
+
+  let dhanWs = null;
+
+  try {
+    // Get stored headers and handshake from chrome extension captures
+    const orderFeedData = headersStore.orderFeed;
+    const handshakeData = headersStore.orderFeedHandshake;
+
+    console.log('📋 Order feed data:', orderFeedData ? 'Available' : 'Missing');
+    console.log('📋 Handshake data:', handshakeData ? 'Available' : 'Missing');
+
+    if (!orderFeedData || !orderFeedData.url) {
+      const errorMsg = {
+        error: 'No order feed data captured. Please visit https://web.dhan.co/index/orders/Today first.'
+      };
+      console.error('❌', errorMsg.error);
+      frontendWs.send(JSON.stringify(errorMsg));
+      frontendWs.close();
+      return;
+    }
+
+    if (!handshakeData || !handshakeData.message) {
+      const errorMsg = {
+        error: 'No handshake message captured. Please refresh the Dhan orders page.'
+      };
+      console.error('❌', errorMsg.error);
+      frontendWs.send(JSON.stringify(errorMsg));
+      frontendWs.close();
+      return;
+    }
+
+    // Import WebSocket client (dynamic import since we're using ES modules)
+    const WebSocket = (await import('ws')).default;
+
+    console.log('🔗 Connecting to Dhan:', orderFeedData.url);
+
+    // Connect to real Dhan WebSocket with proper headers
+    dhanWs = new WebSocket(orderFeedData.url, {
+      headers: {
+        'Host': orderFeedData.host,
+        'Origin': orderFeedData.origin,
+        'User-Agent': orderFeedData.userAgent || 'Mozilla/5.0'
+      }
+    });
+
+    // Handle Dhan connection open
+    dhanWs.on('open', () => {
+      console.log('✅ Connected to Dhan order feed');
+
+      // Send 703B handshake message to Dhan
+      try {
+        const handshakeBuffer = Buffer.from(handshakeData.message, 'base64');
+        dhanWs.send(handshakeBuffer);
+        console.log('📨 Sent 703B handshake to Dhan');
+
+        // Notify frontend that connection is ready
+        frontendWs.send(JSON.stringify({
+          type: 'connection_ready',
+          message: 'Connected to order feed'
+        }));
+      } catch (error) {
+        console.error('❌ Error sending handshake:', error);
+      }
+    });
+
+    // Forward messages from Dhan to frontend
+    dhanWs.on('message', (data) => {
+      try {
+        // Check if frontend connection is still open
+        if (frontendWs.readyState === 1) { // WebSocket.OPEN = 1
+          // Forward the message as-is (binary or text)
+          frontendWs.send(data);
+
+          // Log message type (for debugging)
+          if (data.length === 0) {
+            console.log('📥 Heartbeat from Dhan (empty message)');
+          } else {
+            try {
+              const parsed = JSON.parse(data.toString());
+              if (parsed.Type === 'order_alert') {
+                console.log('📥 Order alert:', parsed.Data?.symbol, parsed.Data?.status);
+              }
+            } catch (e) {
+              // Not JSON, might be binary
+              console.log('📥 Binary message from Dhan:', data.length, 'bytes');
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error forwarding message to frontend:', error);
+      }
+    });
+
+    // Forward messages from frontend to Dhan (e.g., heartbeats)
+    frontendWs.on('message', (data) => {
+      try {
+        if (dhanWs && dhanWs.readyState === 1) { // WebSocket.OPEN = 1
+          dhanWs.send(data);
+
+          if (data.length === 0 || (typeof data === 'string' && data === '')) {
+            console.log('📤 Heartbeat sent to Dhan');
+          } else {
+            console.log('📤 Message sent to Dhan:', data.length, 'bytes');
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error forwarding message to Dhan:', error);
+      }
+    });
+
+    // Handle Dhan connection close
+    dhanWs.on('close', (code, reason) => {
+      console.log('🔒 Dhan connection closed:', code, reason.toString());
+      if (frontendWs.readyState === 1) {
+        frontendWs.close();
+      }
+    });
+
+    // Handle frontend connection close
+    frontendWs.on('close', () => {
+      console.log('🔒 Frontend connection closed');
+      if (dhanWs && dhanWs.readyState === 1) {
+        dhanWs.close();
+      }
+    });
+
+    // Handle Dhan connection errors
+    dhanWs.on('error', (error) => {
+      console.error('❌ Dhan WebSocket error:', error.message);
+      if (frontendWs.readyState === 1) {
+        frontendWs.send(JSON.stringify({
+          error: `Dhan connection error: ${error.message}`
+        }));
+      }
+    });
+
+    // Handle frontend connection errors
+    frontendWs.on('error', (error) => {
+      console.error('❌ Frontend WebSocket error:', error.message);
+    });
+
+  } catch (error) {
+    console.error('❌ Error setting up order feed proxy:', error);
+    if (frontendWs.readyState === 1) {
+      frontendWs.send(JSON.stringify({
+        error: `Proxy setup error: ${error.message}`
+      }));
+    }
+    frontendWs.close();
+    if (dhanWs && dhanWs.readyState === 1) {
+      dhanWs.close();
+    }
+  }
+});
+
+console.log('✅ WebSocket server ready on ws://localhost:' + PORT + '/ws/orderFeed');
 
 // Helper function to generate mock OHLC data
 function generateMockOHLC(count) {
