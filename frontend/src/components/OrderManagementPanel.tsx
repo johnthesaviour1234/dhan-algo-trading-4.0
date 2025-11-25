@@ -112,36 +112,65 @@ export function OrderManagementPanel() {
       setConnectionStatus('connected');
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       try {
-        // Check if it's text (JSON) or binary
-        if (typeof event.data === 'string') {
-          const message = JSON.parse(event.data);
+        let messageText: string;
 
-          // Handle connection ready message
-          if (message.type === 'connection_ready') {
-            console.log('✅', message.message);
-            return;
-          }
+        // Handle different message types
+        if (event.data instanceof Blob) {
+          // Binary message (Blob) - convert to text
+          console.log('📥 Received Blob message, size:', event.data.size);
+          messageText = await event.data.text();
+        } else if (typeof event.data === 'string') {
+          // Text message
+          messageText = event.data;
+        } else {
+          console.warn('⚠️ Unknown message type:', typeof event.data);
+          return;
+        }
 
-          // Handle error messages
-          if (message.error) {
-            console.error('❌ Order feed error:', message.error);
-            setConnectionStatus('error');
-            return;
-          }
-
-          // Handle order alerts
-          if (message.Type === 'order_alert' && message.Data) {
-            console.log('📥 Order alert received:', message.Data.symbol, message.Data.status);
-            processOrderMessage(message);
+        // Check if message is base64 encoded (starts with common base64 patterns)
+        // Base64 typically doesn't start with '{' or valid JSON chars
+        let jsonString: string;
+        if (messageText && !messageText.trim().startsWith('{') && messageText.match(/^[A-Za-z0-9+/=]+$/)) {
+          // Looks like base64, decode it
+          console.log('🔓 Decoding base64 message...');
+          try {
+            jsonString = atob(messageText);
+            console.log('✅ Base64 decoded successfully');
+          } catch (e) {
+            console.error('❌ Base64 decode failed:', e);
+            jsonString = messageText; // Use as-is if decode fails
           }
         } else {
-          // Handle heartbeat (empty binary messages)
-          console.log('📥 Heartbeat received');
+          jsonString = messageText;
+        }
+
+        // Parse JSON
+        const message = JSON.parse(jsonString);
+        console.log('📨 Parsed message:', message);
+
+        // Handle connection ready message
+        if (message.type === 'connection_ready') {
+          console.log('✅', message.message);
+          return;
+        }
+
+        // Handle error messages
+        if (message.error) {
+          console.error('❌ Order feed error:', message.error);
+          setConnectionStatus('error');
+          return;
+        }
+
+        // Handle order alerts
+        if (message.Type === 'order_alert' && message.Data) {
+          console.log('📊 Order alert received:', message.Data.symbol, message.Data.status);
+          processOrderMessage(message);
         }
       } catch (error) {
         console.error('❌ Error processing message:', error);
+        console.error('   Raw data:', event.data);
       }
     };
 
