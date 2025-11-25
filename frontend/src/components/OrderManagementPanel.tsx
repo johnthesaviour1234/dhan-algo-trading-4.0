@@ -1,67 +1,76 @@
-segment: string;
-source: string;
-security_id: string;
-client_id: string;
-exch_order_no: string;
-order_no: string;
-product: string;
-txn_type: string;
-order_type: string;
-validity: string;
-disc_quantity: number;
-dq_qty_rem: number;
-remaining_quantity: number;
-quantity: number;
-traded_qty: number;
-price: number;
-trigger_price: number;
-serial_no: number;
-traded_price: number;
-avg_traded_price: number;
-algo_ord_no: number;
-strategy_id: number;
-off_mkt_flag: string;
-order_date_time: string;
-exch_order_time: string;
-last_updated_time: string;
-remarks: string;
-mkt_type: string;
-reason_description: string;
-leg_no: number;
-mkt_pro_flag: string;
-mkt_pro_value: number;
-participant_type: string;
-settlor: string;
-GTCFlag: string;
-encash_flag: string;
-pan_no: string;
-group_id: number;
-instrument: string;
-symbol: string;
-product_name: string;
-status: string;
-lot_size: number;
-fSLTrail: number;
-trailing_jump: number;
-fSLTickValue: number;
-sl_abstick_value: number;
-fPRTickValue: number;
-pr_abstick_value: number;
-strike_price: number;
-expiry_date: string;
-opt_type: string;
-display_name: string;
-isin: string;
-series: string;
-good_till_days_date: string;
-sIntrumentType: string;
-ref_ltp: number;
-tick_size: number;
-algo_id: string;
-sPlatform: string;
-sChannel: string;
-multiplier: number;
-underlying_symbol: string;
+import { useState, useEffect } from 'react';
+import { ShoppingCart, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { toast } from './Toast';
+import { API_URL, WS_URL } from '../config/api';
+
+interface OrderData {
+  msg_code: number;
+  msg_len: number;
+  exchange: string;
+  segment: string;
+  source: string;
+  security_id: string;
+  client_id: string;
+  exch_order_no: string;
+  order_no: string;
+  product: string;
+  txn_type: string;
+  order_type: string;
+  validity: string;
+  disc_quantity: number;
+  dq_qty_rem: number;
+  remaining_quantity: number;
+  quantity: number;
+  traded_qty: number;
+  price: number;
+  trigger_price: number;
+  serial_no: number;
+  traded_price: number;
+  avg_traded_price: number;
+  algo_ord_no: number;
+  strategy_id: number;
+  off_mkt_flag: string;
+  order_date_time: string;
+  exch_order_time: string;
+  last_updated_time: string;
+  remarks: string;
+  mkt_type: string;
+  reason_description: string;
+  leg_no: number;
+  mkt_pro_flag: string;
+  mkt_pro_value: number;
+  participant_type: string;
+  settlor: string;
+  GTCFlag: string;
+  encash_flag: string;
+  pan_no: string;
+  group_id: number;
+  instrument: string;
+  symbol: string;
+  product_name: string;
+  status: string;
+  lot_size: number;
+  fSLTrail: number;
+  trailing_jump: number;
+  fSLTickValue: number;
+  sl_abstick_value: number;
+  fPRTickValue: number;
+  pr_abstick_value: number;
+  strike_price: number;
+  expiry_date: string;
+  opt_type: string;
+  display_name: string;
+  isin: string;
+  series: string;
+  good_till_days_date: string;
+  sIntrumentType: string;
+  ref_ltp: number;
+  tick_size: number;
+  algo_id: string;
+  sPlatform: string;
+  sChannel: string;
+  multiplier: number;
+  underlying_symbol: string;
 }
 
 interface OrderMessage {
@@ -113,7 +122,7 @@ export function OrderManagementPanel() {
       let token = localStorage.getItem('dhan_access_token');
 
       if (!token) {
-        const res = await fetch('http://localhost:3001/api/access-token');
+        const res = await fetch(`${API_URL}/api/access-token`);
         if (res.ok) {
           const data = await res.json();
           token = data.token;
@@ -146,7 +155,7 @@ export function OrderManagementPanel() {
 
       console.log('📤 Placing order:', orderPayload);
 
-      const res = await fetch('http://localhost:3001/api/orders', {
+      const res = await fetch(`${API_URL}/api/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -174,7 +183,7 @@ export function OrderManagementPanel() {
   // WebSocket connection to backend order feed proxy
   useEffect(() => {
     console.log('🔌 Connecting to order feed WebSocket...');
-    const ws = new WebSocket('ws://localhost:3001/ws/orderFeed');
+    const ws = new WebSocket(`${WS_URL}/ws/orderFeed`);
 
     ws.onopen = () => {
       console.log('✅ Connected to order feed');

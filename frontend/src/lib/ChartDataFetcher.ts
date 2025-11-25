@@ -1,3 +1,10 @@
+import { CandlestickData, Time } from 'lightweight-charts';
+import { API_URL } from '../config/api';
+
+/**
+ * Chart Data Fetcher - Based on reverse-engineered Dhan implementation
+ * Implements the getBars mechanism from bundle2.1.37.js Class Dn
+ */
 export class ChartDataFetcher {
     private cache: Map<string, CandlestickData[]> = new Map();
     private readonly IST_OFFSET_MINUTES = 330; // +5:30 hours
@@ -145,7 +152,7 @@ export class ChartDataFetcher {
 
         try {
             // 5. Fetch from backend proxy
-            const response = await fetch('http://localhost:3001/api/getData', {
+            const response = await fetch(`${API_URL}/api/getData`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
