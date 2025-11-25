@@ -1,3 +1,4 @@
+guidelines:
 1) firstly get familier with the code base. know about complete project structure, language using, any coding rules if applicable or available etc.
 2) understand our current problem we are working on and all the related files thats dependend or gets effected or needs to be changed accordingly. how these files are connected, their relation ship and their imports etc.
 3) then start making changes while keeping the context of the project and the problem we are solving. and the solution in mind. 
