@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Key, Save, CheckCircle } from 'lucide-react';
+import { API_URL } from '../config/api';
 
 export function AccessTokenInput() {
     const [token, setToken] = useState('');
@@ -13,7 +14,7 @@ export function AccessTokenInput() {
 
     const fetchToken = async () => {
         try {
-            const res = await fetch('http://localhost:3001/api/access-token');
+            const res = await fetch(`${API_URL}/api/access-token`);
             if (res.ok) {
                 const data = await res.json();
                 setToken(data.token);
@@ -31,7 +32,7 @@ export function AccessTokenInput() {
 
         setLoading(true);
         try {
-            const res = await fetch('http://localhost:3001/api/access-token', {
+            const res = await fetch(`${API_URL}/api/access-token`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token: token.trim() })
@@ -72,8 +73,8 @@ export function AccessTokenInput() {
                     onClick={saveToken}
                     disabled={loading || !token.trim()}
                     className={`px-6 py-2 rounded-lg flex items-center gap-2 transition-colors ${saved
-                            ? 'bg-green-600 text-white'
-                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        ? 'bg-green-600 text-white'
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
                         } disabled:bg-gray-300 disabled:cursor-not-allowed`}
                 >
                     {saved ? (

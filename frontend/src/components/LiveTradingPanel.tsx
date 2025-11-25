@@ -4,6 +4,7 @@ import { StrategyCard } from './StrategyCard';
 import type { StrategyPerformance, MetricData, Trade } from './BacktestingPanel';
 import { TestingStrategy } from '../strategies/TestingStrategy';
 import { toast } from './Toast';
+import { API_URL } from '../config/api';
 
 const availableStrategies = [
   { id: 'testing', name: 'Testing', type: 'auto' },
@@ -35,7 +36,7 @@ export function LiveTradingPanel() {
       let token = localStorage.getItem('dhan_access_token');
 
       if (!token) {
-        const res = await fetch('http://localhost:3001/api/access-token');
+        const res = await fetch(`${API_URL}/api/access-token`);
         if (res.ok) {
           const data = await res.json();
           token = data.token;
@@ -68,7 +69,7 @@ export function LiveTradingPanel() {
 
       console.log('📤 Placing order:', orderPayload);
 
-      const res = await fetch('http://localhost:3001/api/orders', {
+      const res = await fetch(`${API_URL}/api/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
