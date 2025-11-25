@@ -1,6 +1,7 @@
 import { TradingChart } from './components/TradingChart';
 import { BacktestingPanel } from './components/BacktestingPanel';
 import { OrderManagementPanel } from './components/OrderManagementPanel';
+import { AccessTokenInput } from './components/AccessTokenInput';
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
 
       <main className="max-w-[1600px] mx-auto p-6 space-y-6">
         <TradingChart />
+        <AccessTokenInput />
         <OrderManagementPanel />
         <BacktestingPanel />
       </main>

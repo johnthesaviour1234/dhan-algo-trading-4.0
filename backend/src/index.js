@@ -20,6 +20,9 @@ const headersStore = {
   orders: {} // Future proofing
 };
 
+// Store access token for order placement
+let accessToken = null;
+
 // API Routes
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -39,6 +42,33 @@ app.post('/api/capture-headers/:type', (req, res) => {
 
   console.log(`📥 Captured headers for ${type}:`, Object.keys(headers));
   res.json({ success: true, message: `Headers captured for ${type}` });
+});
+
+// Access token endpoints
+app.post('/api/access-token', (req, res) => {
+  const { token } = req.body;
+
+  if (!token) {
+    return res.status(400).json({
+      success: false,
+      error: 'Token is required'
+    });
+  }
+
+  accessToken = token;
+  console.log('🔑 Access token stored');
+  res.json({ success: true, message: 'Access token stored successfully' });
+});
+
+app.get('/api/access-token', (req, res) => {
+  if (!accessToken) {
+    return res.status(404).json({
+      success: false,
+      error: 'No access token stored'
+    });
+  }
+
+  res.json({ success: true, token: accessToken });
 });
 
 // Market data proxy endpoint
@@ -106,6 +136,66 @@ app.post('/api/getData', async (req, res) => {
   } catch (error) {
     console.error('❌ Error proxying to Dhan:', error.message);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Order placement endpoint - Proxy to Dhan API
+app.post('/api/orders', async (req, res) => {
+  try {
+    const orderPayload = req.body;
+
+    // Get token from stored value or request header
+    const token = accessToken || req.headers['access-token'];
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: 'Access token required. Please set access token first.'
+      });
+    }
+
+    console.log('\n📤 ===== PLACING ORDER =====');
+    console.log('Order Payload:', JSON.stringify(orderPayload, null, 2));
+    console.log('Using access token:', token.substring(0, 20) + '...');
+
+    const response = await fetch('https://api.dhan.co/v2/orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'access-token': token
+      },
+      body: JSON.stringify(orderPayload)
+    });
+
+    const data = await response.json();
+
+    console.log('Response status:', response.status);
+    console.log('Response data:', JSON.stringify(data, null, 2));
+
+    if (!response.ok) {
+      console.error('❌ Order placement failed:', data);
+      return res.status(response.status).json({
+        success: false,
+        error: data.errorMessage || data.message || 'Order placement failed',
+        details: data
+      });
+    }
+
+    console.log('✅ Order placed successfully');
+    console.log('   Order ID:', data.orderId);
+    console.log('   Status:', data.orderStatus);
+    console.log('===== END ORDER PLACEMENT =====\n');
+
+    res.json({
+      success: true,
+      ...data
+    });
+  } catch (error) {
+    console.error('❌ Order placement error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
