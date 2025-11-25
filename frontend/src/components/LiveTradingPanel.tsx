@@ -146,13 +146,13 @@ export function LiveTradingPanel() {
 
         console.log('🚀 Testing strategy initialized and started');
       } else {
-        // Keep mock data behavior for other strategies
+        // Non-Testing strategies: initialize with empty data (no mocks)
         initialPerformanceData.push({
           strategyId: strategy.id,
           strategyName: strategy.name,
           strategyType: strategy.type,
           metrics: generateInitialMetrics(),
-          trades: generateInitialTrades(strategy.name),
+          trades: [], // Empty - only Testing strategy executes real trades
         });
       }
     });
@@ -174,7 +174,7 @@ export function LiveTradingPanel() {
     setActiveStrategies(new Map());
   };
 
-  // Real-time updates
+  // Real-time updates - only update metrics, no mock trades
   useEffect(() => {
     if (!isLive || selectedStrategies.length === 0) return;
 
@@ -183,7 +183,7 @@ export function LiveTradingPanel() {
         prevData.map(strategy => ({
           ...strategy,
           metrics: updateMetrics(strategy.metrics),
-          trades: maybeAddNewTrade(strategy.trades, strategy.strategyName),
+          // Trades only updated by Testing strategy via callback, not by timer
         }))
       );
     }, 3000); // Update every 3 seconds
