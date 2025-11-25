@@ -1,9 +1,3 @@
-import { CandlestickData, Time } from 'lightweight-charts';
-
-/**
- * Chart Data Fetcher - Based on reverse-engineered Dhan implementation
- * Implements the getBars mechanism from bundle2.1.37.js Class Dn
- */
 export class ChartDataFetcher {
     private cache: Map<string, CandlestickData[]> = new Map();
     private readonly IST_OFFSET_MINUTES = 330; // +5:30 hours
