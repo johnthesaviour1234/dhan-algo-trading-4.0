@@ -2,8 +2,11 @@ import { useState, useEffect } from 'react';
 import { Play, Pause, TrendingUp, TrendingDown, Activity, Target, BarChart3, DollarSign } from 'lucide-react';
 import { StrategyCard } from './StrategyCard';
 import type { StrategyPerformance, MetricData, Trade } from './BacktestingPanel';
+import { TestingStrategy } from '../strategies/TestingStrategy';
+import { toast } from './Toast';
 
 const availableStrategies = [
+  { id: 'testing', name: 'Testing', type: 'auto' },
   { id: '1', name: 'SMA Crossover', type: 'trend' },
   { id: '2', name: 'RSI Mean Reversion', type: 'mean-reversion' },
   { id: '3', name: 'Breakout Strategy', type: 'momentum' },
@@ -17,6 +20,7 @@ export function LiveTradingPanel() {
   const [performanceData, setPerformanceData] = useState<StrategyPerformance[]>([]);
   const [isLive, setIsLive] = useState(false);
   const [hasResults, setHasResults] = useState(false);
+  const [activeStrategies, setActiveStrategies] = useState<Map<string, TestingStrategy>>(new Map());
 
   const addStrategy = (strategyId: string) => {
     const strategy = availableStrategies.find(s => s.id === strategyId);
@@ -25,10 +29,73 @@ export function LiveTradingPanel() {
     }
   };
 
+  const placeOrder = async (type: 'BUY' | 'SELL', qty: number): Promise<{ price?: number }> => {
+    try {
+      // Get access token
+      let token = localStorage.getItem('dhan_access_token');
+
+      if (!token) {
+        const res = await fetch('http://localhost:3001/api/access-token');
+        if (res.ok) {
+          const data = await res.json();
+          token = data.token;
+          if (token) localStorage.setItem('dhan_access_token', token);
+        } else {
+          toast.warning('Please set access token first');
+          throw new Error('No access token');
+        }
+      }
+
+      if (!token) {
+        toast.error('Access token not available');
+        throw new Error('No access token');
+      }
+
+      const orderPayload = {
+        dhanClientId: "1102850909",
+        transactionType: type,
+        exchangeSegment: "NSE_EQ",
+        productType: "INTRADAY",
+        orderType: "MARKET",
+        validity: "DAY",
+        securityId: "14366", // IDEA
+        quantity: qty.toString(),
+        disclosedQuantity: "",
+        price: "",
+        triggerPrice: "",
+        afterMarketOrder: false
+      };
+
+      console.log('📤 Placing order:', orderPayload);
+
+      const res = await fetch('http://localhost:3001/api/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'access-token': token
+        },
+        body: JSON.stringify(orderPayload)
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        console.log('✅ Order placed:', data);
+        return { price: 10 }; // TODO: Get actual price from order response or market data
+      } else {
+        throw new Error(data.error || 'Order failed');
+      }
+    } catch (error: any) {
+      console.error('❌ Order error:', error);
+      toast.error(`Order ${type} failed: ${error.message}`);
+      throw error;
+    }
+  };
+
   const removeStrategy = (strategyId: string) => {
     setSelectedStrategies(selectedStrategies.filter(s => s.id !== strategyId));
     setPerformanceData(performanceData.filter(p => p.strategyId !== strategyId));
-    
+
     if (selectedStrategies.length === 1) {
       setHasResults(false);
       setIsLive(false);
@@ -37,24 +104,74 @@ export function LiveTradingPanel() {
 
   const startLiveTrading = () => {
     if (selectedStrategies.length === 0) return;
-    
+
     setIsLive(true);
-    
-    // Initialize with current data
-    const results = selectedStrategies.map(strategy => ({
-      strategyId: strategy.id,
-      strategyName: strategy.name,
-      strategyType: strategy.type,
-      metrics: generateInitialMetrics(),
-      trades: generateInitialTrades(strategy.name),
-    }));
-    
-    setPerformanceData(results);
+
+    // Initialize strategies
+    const newActiveStrategies = new Map<string, TestingStrategy>();
+    const initialPerformanceData: StrategyPerformance[] = [];
+
+    selectedStrategies.forEach(strategy => {
+      if (strategy.id === 'testing') {
+        // Create and start Testing strategy with real order placement
+        const testingStrategy = new TestingStrategy(
+          placeOrder,
+          (trade) => {
+            // Add trade to performance data
+            setPerformanceData(prevData => {
+              const strategyData = prevData.find(p => p.strategyId === 'testing');
+              if (strategyData) {
+                return prevData.map(p =>
+                  p.strategyId === 'testing'
+                    ? { ...p, trades: [trade, ...p.trades] }
+                    : p
+                );
+              }
+              return prevData;
+            });
+          }
+        );
+
+        testingStrategy.start();
+        newActiveStrategies.set('testing', testingStrategy);
+
+        // Initialize performance data for Testing strategy
+        initialPerformanceData.push({
+          strategyId: 'testing',
+          strategyName: 'Testing',
+          strategyType: 'auto',
+          metrics: generateInitialMetrics(),
+          trades: []
+        });
+
+        console.log('🚀 Testing strategy initialized and started');
+      } else {
+        // Keep mock data behavior for other strategies
+        initialPerformanceData.push({
+          strategyId: strategy.id,
+          strategyName: strategy.name,
+          strategyType: strategy.type,
+          metrics: generateInitialMetrics(),
+          trades: generateInitialTrades(strategy.name),
+        });
+      }
+    });
+
+    setActiveStrategies(newActiveStrategies);
+    setPerformanceData(initialPerformanceData);
     setHasResults(true);
   };
 
   const stopLiveTrading = () => {
     setIsLive(false);
+
+    // Stop all active strategies
+    activeStrategies.forEach((strategy, id) => {
+      console.log(`🛑 Stopping strategy: ${id}`);
+      strategy.stop();
+    });
+
+    setActiveStrategies(new Map());
   };
 
   // Real-time updates
@@ -62,7 +179,7 @@ export function LiveTradingPanel() {
     if (!isLive || selectedStrategies.length === 0) return;
 
     const interval = setInterval(() => {
-      setPerformanceData(prevData => 
+      setPerformanceData(prevData =>
         prevData.map(strategy => ({
           ...strategy,
           metrics: updateMetrics(strategy.metrics),
@@ -102,11 +219,10 @@ export function LiveTradingPanel() {
                 key={strategy.id}
                 onClick={() => !isSelected && addStrategy(strategy.id)}
                 disabled={isSelected}
-                className={`px-4 py-2 rounded-lg border transition-colors ${
-                  isSelected
-                    ? 'bg-blue-50 border-blue-300 text-blue-700 cursor-not-allowed'
-                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
+                className={`px-4 py-2 rounded-lg border transition-colors ${isSelected
+                  ? 'bg-blue-50 border-blue-300 text-blue-700 cursor-not-allowed'
+                  : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
               >
                 {strategy.name}
               </button>
@@ -121,11 +237,10 @@ export function LiveTradingPanel() {
           <button
             onClick={startLiveTrading}
             disabled={selectedStrategies.length === 0}
-            className={`flex items-center gap-2 px-6 py-3 rounded-lg transition-colors ${
-              selectedStrategies.length === 0
-                ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                : 'bg-green-600 text-white hover:bg-green-700'
-            }`}
+            className={`flex items-center gap-2 px-6 py-3 rounded-lg transition-colors ${selectedStrategies.length === 0
+              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+              : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
           >
             <Play className="w-5 h-5" />
             Start Live Trading
@@ -155,7 +270,7 @@ export function LiveTradingPanel() {
               {(['overall', 'yearly', 'quarterly', 'monthly', 'weekly', 'daily'] as const).map((timeframe) => (
                 <div key={timeframe} className="bg-white rounded-lg p-4">
                   <div className="text-gray-700 mb-3 capitalize">{timeframe}</div>
-                  
+
                   <div className="grid grid-cols-6 gap-3">
                     <MetricCard
                       icon={<TrendingUp className="w-4 h-4" />}
@@ -163,34 +278,34 @@ export function LiveTradingPanel() {
                       value={`${combinedMetrics[timeframe].return > 0 ? '+' : ''}${combinedMetrics[timeframe].return.toFixed(2)}%`}
                       positive={combinedMetrics[timeframe].return > 0}
                     />
-                    
+
                     <MetricCard
                       icon={<Activity className="w-4 h-4" />}
                       label="Sharpe Ratio"
                       value={combinedMetrics[timeframe].sharpeRatio.toFixed(2)}
                       positive={combinedMetrics[timeframe].sharpeRatio > 1}
                     />
-                    
+
                     <MetricCard
                       icon={<TrendingDown className="w-4 h-4" />}
                       label="Max Drawdown"
                       value={`${combinedMetrics[timeframe].maxDrawdown.toFixed(2)}%`}
                       positive={combinedMetrics[timeframe].maxDrawdown > -10}
                     />
-                    
+
                     <MetricCard
                       icon={<Target className="w-4 h-4" />}
                       label="Win Rate"
                       value={`${combinedMetrics[timeframe].winRate.toFixed(2)}%`}
                       positive={combinedMetrics[timeframe].winRate > 50}
                     />
-                    
+
                     <MetricCard
                       icon={<BarChart3 className="w-4 h-4" />}
                       label="Total Trades"
                       value={combinedMetrics[timeframe].totalTrades.toString()}
                     />
-                    
+
                     <MetricCard
                       icon={<DollarSign className="w-4 h-4" />}
                       label="Profit Factor"
@@ -271,7 +386,7 @@ function generateRandomMetricData(): MetricData {
 
 function updateMetrics(currentMetrics: StrategyPerformance['metrics']): StrategyPerformance['metrics'] {
   const updatedMetrics = { ...currentMetrics };
-  
+
   // Slightly update each timeframe
   (['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'overall'] as const).forEach(timeframe => {
     updatedMetrics[timeframe] = {
@@ -283,7 +398,7 @@ function updateMetrics(currentMetrics: StrategyPerformance['metrics']): Strategy
       profitFactor: parseFloat(Math.max(0, currentMetrics[timeframe].profitFactor + (Math.random() * 0.2 - 0.1)).toFixed(2)),
     };
   });
-  
+
   return updatedMetrics;
 }
 
@@ -315,7 +430,7 @@ function maybeAddNewTrade(currentTrades: Trade[], strategyName: string): Trade[]
     const newTrade = generateTrade(strategyName, entryDate, exitDate, currentTrades.length);
     return [...currentTrades, newTrade].sort((a, b) => new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime());
   }
-  
+
   return currentTrades;
 }
 
@@ -325,18 +440,18 @@ function generateTrade(strategyName: string, entryDate: Date, exitDate: Date, in
   const priceChange = (Math.random() * 20 - 10);
   const exitPrice = parseFloat((entryPrice + (direction === 'Long' ? priceChange : -priceChange)).toFixed(2));
   const quantity = Math.floor(Math.random() * 100 + 10);
-  
-  const pnl = direction === 'Long' 
-    ? (exitPrice - entryPrice) * quantity 
+
+  const pnl = direction === 'Long'
+    ? (exitPrice - entryPrice) * quantity
     : (entryPrice - exitPrice) * quantity;
   const pnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100 * (direction === 'Long' ? 1 : -1);
-  
+
   const durationHours = Math.floor((exitDate.getTime() - entryDate.getTime()) / (1000 * 60 * 60));
   const duration = durationHours < 24 ? `${durationHours}h` : `${Math.floor(durationHours / 24)}d`;
 
   // Generate strategy-specific indicators
   let indicators: Record<string, number | boolean | string> = {};
-  
+
   if (strategyName === 'SMA Crossover') {
     const sma5 = parseFloat((entryPrice + Math.random() * 10 - 5).toFixed(2));
     const sma30 = parseFloat((entryPrice + Math.random() * 10 - 5).toFixed(2));
