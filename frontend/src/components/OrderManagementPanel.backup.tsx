@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShoppingCart, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { ShoppingCart, TrendingUp, TrendingDown, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 
 interface OrderData {
   msg_code: number;
@@ -101,82 +101,6 @@ export function OrderManagementPanel() {
   const [orders, setOrders] = useState<ProcessedOrder[]>([]);
   const [filter, setFilter] = useState<'all' | 'pending' | 'traded' | 'rejected'>('all');
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting');
-
-  // Order form state
-  const [orderForm, setOrderForm] = useState({
-    symbol: 'IDEA',
-    securityId: '14366',
-    quantity: 1,
-    orderType: 'MARKET' as 'MARKET' | 'LIMIT',
-    productType: 'INTRADAY' as 'INTRADAY' | 'CNC',
-    price: 0
-  });
-  const [orderLoading, setOrderLoading] = useState(false);
-
-  // Place order function
-  const placeOrder = async (transactionType: 'BUY' | 'SELL') => {
-    setOrderLoading(true);
-    try {
-      let token = localStorage.getItem('dhan_access_token');
-
-      if (!token) {
-        const res = await fetch('http://localhost:3001/api/access-token');
-        if (res.ok) {
-          const data = await res.json();
-          token = data.token;
-          if (token) localStorage.setItem('dhan_access_token', token);
-        } else {
-          alert('⚠️ Please set access token first');
-          return;
-        }
-      }
-
-      if (!token) {
-        alert('⚠️ Access token not available');
-        return;
-      }
-
-      const orderPayload = {
-        dhanClientId: "1102850909",
-        transactionType,
-        exchangeSegment: "NSE_EQ",
-        productType: orderForm.productType,
-        orderType: orderForm.orderType,
-        validity: "DAY",
-        securityId: orderForm.securityId,
-        quantity: orderForm.quantity.toString(),
-        disclosedQuantity: "",
-        price: orderForm.orderType === 'LIMIT' ? orderForm.price.toString() : "",
-        triggerPrice: "",
-        afterMarketOrder: false
-      };
-
-      console.log('📤 Placing order:', orderPayload);
-
-      const res = await fetch('http://localhost:3001/api/orders', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'access-token': token
-        },
-        body: JSON.stringify(orderPayload)
-      });
-
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        console.log('✅ Order placed:', data);
-        alert(`✅ Order ${transactionType}\n\nOrder ID: ${data.orderId}\nStatus: ${data.orderStatus}\n\nOrder will appear below via WebSocket`);
-      } else {
-        throw new Error(data.error || 'Order failed');
-      }
-    } catch (error: any) {
-      console.error('❌ Order error:', error);
-      alert(`❌ Order failed: ${error.message}`);
-    } finally {
-      setOrderLoading(false);
-    }
-  };
 
   // WebSocket connection to backend order feed proxy
   useEffect(() => {
