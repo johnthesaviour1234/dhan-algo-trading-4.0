@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ShoppingCart, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { toast } from './Toast';
 
 interface OrderData {
   msg_code: number;
@@ -126,13 +127,13 @@ export function OrderManagementPanel() {
           token = data.token;
           if (token) localStorage.setItem('dhan_access_token', token);
         } else {
-          alert('⚠️ Please set access token first');
+          toast.warning('Please set access token first');
           return;
         }
       }
 
       if (!token) {
-        alert('⚠️ Access token not available');
+        toast.error('Access token not available');
         return;
       }
 
@@ -166,13 +167,13 @@ export function OrderManagementPanel() {
 
       if (res.ok && data.success) {
         console.log('✅ Order placed:', data);
-        alert(`✅ Order ${transactionType}\n\nOrder ID: ${data.orderId}\nStatus: ${data.orderStatus}\n\nOrder will appear below via WebSocket`);
+        toast.success(`Order ${transactionType} placed! ID: ${data.orderId} - ${data.orderStatus}`);
       } else {
         throw new Error(data.error || 'Order failed');
       }
     } catch (error: any) {
       console.error('❌ Order error:', error);
-      alert(`❌ Order failed: ${error.message}`);
+      toast.error(`Order failed: ${error.message}`);
     } finally {
       setOrderLoading(false);
     }
