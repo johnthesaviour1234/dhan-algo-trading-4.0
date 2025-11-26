@@ -24,6 +24,34 @@ export function LiveTradingPanel() {
   const [isLive, setIsLive] = useState(false);
   const [hasResults, setHasResults] = useState(false);
   const [activeStrategies, setActiveStrategies] = useState<Map<string, TestingStrategy | TestingStrategy2>>(new Map());
+  const [hasAccessToken, setHasAccessToken] = useState(false);
+
+  // Check for access token on mount and periodically
+  useEffect(() => {
+    const checkToken = async () => {
+      const localToken = localStorage.getItem('dhan_access_token');
+      if (localToken) {
+        setHasAccessToken(true);
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_URL}/api/access-token`);
+        if (res.ok) {
+          const data = await res.json();
+          setHasAccessToken(!!data.token);
+        } else {
+          setHasAccessToken(false);
+        }
+      } catch {
+        setHasAccessToken(false);
+      }
+    };
+
+    checkToken();
+    const interval = setInterval(checkToken, 5000); // Check every 5s
+    return () => clearInterval(interval);
+  }, []);
 
   const addStrategy = (strategyId: string) => {
     const strategy = availableStrategies.find(s => s.id === strategyId);
@@ -107,6 +135,12 @@ export function LiveTradingPanel() {
 
   const startLiveTrading = () => {
     if (selectedStrategies.length === 0) return;
+
+    // Check for access token before starting
+    if (!hasAccessToken) {
+      toast.error('Please set your Dhan Access Token first!');
+      return;
+    }
 
     setIsLive(true);
 
@@ -270,17 +304,24 @@ export function LiveTradingPanel() {
       {/* Control Button */}
       <div className="mb-8">
         {!isLive ? (
-          <button
-            onClick={startLiveTrading}
-            disabled={selectedStrategies.length === 0}
-            className={`flex items-center gap-2 px-6 py-3 rounded-lg transition-colors ${selectedStrategies.length === 0
-              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              : 'bg-green-600 text-white hover:bg-green-700'
-              }`}
-          >
-            <Play className="w-5 h-5" />
-            Start Live Trading
-          </button>
+          <div>
+            <button
+              onClick={startLiveTrading}
+              disabled={selectedStrategies.length === 0 || !hasAccessToken}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg transition-colors ${selectedStrategies.length === 0 || !hasAccessToken
+                ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+            >
+              <Play className="w-5 h-5" />
+              Start Live Trading
+            </button>
+            {!hasAccessToken && (
+              <p className="text-sm text-red-600 mt-2">
+                ⚠️ Please set your Dhan Access Token first
+              </p>
+            )}
+          </div>
         ) : (
           <button
             onClick={stopLiveTrading}
