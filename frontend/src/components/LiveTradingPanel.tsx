@@ -211,7 +211,8 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
           order_no: order.orderId || order.order_no || '',
           symbol: order.tradingSymbol || order.symbol || '',
           display_name: order.tradingSymbol || '',
-          txn_type: order.transactionType || 'BUY',
+          // Convert API format (BUY/SELL) to UI format (B/S)
+          txn_type: order.transactionType === 'BUY' ? 'B' : order.transactionType === 'SELL' ? 'S' : 'B',
           order_type: order.orderType || 'MARKET',
           quantity: parseInt(order.quantity) || 0,
           traded_qty: order.filledQty || 0,
