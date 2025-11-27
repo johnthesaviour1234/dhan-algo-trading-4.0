@@ -199,6 +199,58 @@ app.post('/api/orders', async (req, res) => {
   }
 });
 
+// Get Order Book - Fetch all orders from Dhan
+app.get('/api/orders', async (req, res) => {
+  try {
+    const token = accessToken || req.headers['access-token'];
+
+    if (!token) {
+      return res.status(404).json({
+        success: false,
+        error: 'Access token not found'
+      });
+    }
+
+    console.log('\n📥 ===== FETCHING ORDER BOOK =====');
+    console.log('Using access token:', token.substring(0, 20) + '...');
+
+    const response = await fetch('https://api.dhan.co/v2/orders', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'access-token': token
+      }
+    });
+
+    const orders = await response.json();
+
+    console.log('Response status:', response.status);
+    console.log('Orders count:', Array.isArray(orders) ? orders.length : 'N/A');
+
+    if (!response.ok) {
+      console.error('❌ Failed to fetch order book:', orders);
+      return res.status(response.status).json({
+        success: false,
+        error: orders.errorMessage || 'Failed to fetch orders'
+      });
+    }
+
+    console.log('✅ Order book fetched successfully');
+    console.log('===== END ORDER BOOK FETCH =====\n');
+
+    res.json({
+      success: true,
+      orders: orders
+    });
+  } catch (error) {
+    console.error('❌ Order book fetch error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Legacy mock endpoint (kept for reference or fallback if needed)
 app.get('/api/market-data-mock', (req, res) => {
   const { symbol = 'NIFTY', timeframe = '1D', limit = 100 } = req.query;

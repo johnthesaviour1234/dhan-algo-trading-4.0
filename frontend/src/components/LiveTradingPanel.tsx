@@ -25,6 +25,8 @@ export function LiveTradingPanel() {
   const [hasResults, setHasResults] = useState(false);
   const [activeStrategies, setActiveStrategies] = useState<Map<string, TestingStrategy | TestingStrategy2>>(new Map());
   const [hasAccessToken, setHasAccessToken] = useState(false);
+  const [isSyncingOrders, setIsSyncingOrders] = useState(false);
+  const [syncedOrders, setSyncedOrders] = useState<any[]>([]);
 
   // Check for access token on mount and periodically
   useEffect(() => {
@@ -133,12 +135,70 @@ export function LiveTradingPanel() {
     }
   };
 
-  const startLiveTrading = () => {
+  // Fetch Order Book from Dhan API
+  const fetchOrderBook = async (): Promise<boolean> => {
+    try {
+      console.log('📥 Syncing Order Book before trading...');
+      setIsSyncingOrders(true);
+
+      let token = localStorage.getItem('dhan_access_token');
+
+      if (!token) {
+        const res = await fetch(`${API_URL}/api/access-token`);
+        if (res.ok) {
+          const data = await res.json();
+          token = data.token;
+        }
+      }
+
+      if (!token) {
+        toast.error('Access token not available');
+        return false;
+      }
+
+      const res = await fetch(`${API_URL}/api/orders`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'access-token': token
+        }
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success && Array.isArray(data.orders)) {
+        console.log(`✅ Order Book synced: ${data.orders.length} orders`);
+        setSyncedOrders(data.orders);
+        toast.success(`Synced ${data.orders.length} existing orders`);
+        return true;
+      } else {
+        console.error('❌ Failed to sync Order Book:', data.error);
+        toast.error('Failed to sync Order Book');
+        return false;
+      }
+    } catch (error: any) {
+      console.error('❌ Order Book sync error:', error.message);
+      toast.error(`Sync failed: ${error.message}`);
+      return false;
+    } finally {
+      setIsSyncingOrders(false);
+    }
+  };
+
+  const startLiveTrading = async () => {  // Made async!
     if (selectedStrategies.length === 0) return;
 
     // Check for access token before starting
     if (!hasAccessToken) {
       toast.error('Please set your Dhan Access Token first!');
+      return;
+    }
+
+    // Sync Order Book before starting strategies
+    toast.info('Syncing Order Book...');
+    const syncSuccess = await fetchOrderBook();
+    if (!syncSuccess) {
+      toast.error('Cannot start trading without Order Book sync');
       return;
     }
 
@@ -307,14 +367,14 @@ export function LiveTradingPanel() {
           <div>
             <button
               onClick={startLiveTrading}
-              disabled={selectedStrategies.length === 0 || !hasAccessToken}
-              className={`flex items-center gap-2 px-6 py-3 rounded-lg transition-colors ${selectedStrategies.length === 0 || !hasAccessToken
+              disabled={selectedStrategies.length === 0 || !hasAccessToken || isSyncingOrders}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg transition-colors ${selectedStrategies.length === 0 || !hasAccessToken || isSyncingOrders
                 ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
                 : 'bg-green-600 text-white hover:bg-green-700'
                 }`}
             >
               <Play className="w-5 h-5" />
-              Start Live Trading
+              {isSyncingOrders ? 'Syncing Orders...' : 'Start Live Trading'}
             </button>
             {!hasAccessToken && (
               <p className="text-sm text-red-600 mt-2">
