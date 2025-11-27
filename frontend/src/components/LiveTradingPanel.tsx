@@ -130,6 +130,36 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     }
   };
 
+  // Validated order placement - checks position before executing
+  const validateAndPlaceOrder = async (
+    strategyId: string,
+    type: 'BUY' | 'SELL',
+    qty: number
+  ): Promise<{ price?: number }> => {
+    const direction = strategyDirections[strategyId];
+
+    if (!direction) {
+      toast.error(`Strategy ${strategyId} has no direction set!`);
+      throw new Error('No strategy direction');
+    }
+
+    // Import position calculator
+    const { canExecuteTrade } = await import('../utils/positionCalculator');
+
+    // Validate against current positions
+    const validation = canExecuteTrade(orders, 'IDEA', type);
+
+    if (!validation.canTrade) {
+      console.warn(`⚠️ Trade blocked for ${strategyId}:`, validation.warning);
+      toast.warning(validation.warning || 'Trade blocked');
+      throw new Error(validation.warning);
+    }
+
+    // Validation passed - execute order
+    console.log(`✅ Position check passed for ${strategyId} ${type}`);
+    return placeOrder(type, qty);
+  };
+
   const removeStrategy = (strategyId: string) => {
     setSelectedStrategies(selectedStrategies.filter(s => s.id !== strategyId));
     setPerformanceData(performanceData.filter(p => p.strategyId !== strategyId));
@@ -226,6 +256,11 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
       return;
     }
 
+    // Wait 2 seconds for orders to fully sync and settle
+    console.log('⏳ Waiting 2s for order data to settle...');
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log('✅ Order data ready, starting strategies...');
+
     setIsLive(true);
 
     // Initialize strategies
@@ -234,9 +269,9 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
 
     selectedStrategies.forEach(strategy => {
       if (strategy.id === 'testing') {
-        // Create and start Testing strategy with real order placement
+        // Create and start Testing strategy with VALIDATED order placement
         const testingStrategy = new TestingStrategy(
-          placeOrder,
+          (type, qty) => validateAndPlaceOrder('testing', type, qty), // Use validated wrapper
           (trade) => {
             // Add trade to performance data
             setPerformanceData(prevData => {
@@ -267,9 +302,9 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
 
         console.log('🚀 Testing strategy initialized and started');
       } else if (strategy.id === 'testing-2') {
-        // Create and start Testing-2 strategy with real order placement
+        // Create and start Testing-2 strategy with VALIDATED order placement
         const testingStrategy2 = new TestingStrategy2(
-          placeOrder,
+          (type, qty) => validateAndPlaceOrder('testing-2', type, qty), // Use validated wrapper
           (trade) => {
             // Add trade to performance data
             setPerformanceData(prevData => {
