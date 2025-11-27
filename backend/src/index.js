@@ -236,7 +236,32 @@ app.get('/api/orders', async (req, res) => {
     }
 
     console.log('✅ Order book fetched successfully');
-    console.log('===== END ORDER BOOK FETCH =====\n');
+    console.log('===== DHAN API RESPONSE DETAILS =====');
+    console.log('Response Type:', typeof orders);
+    console.log('Is Array:', Array.isArray(orders));
+
+    if (Array.isArray(orders) && orders.length > 0) {
+      console.log('\n📊 SAMPLE ORDER DATA (First Order):');
+      console.log(JSON.stringify(orders[0], null, 2));
+
+      console.log('\n📋 ORDER FIELDS PRESENT:');
+      const sampleFields = Object.keys(orders[0]);
+      console.log('Fields:', sampleFields.join(', '));
+      console.log('Total fields:', sampleFields.length);
+
+      console.log('\n📦 ALL ORDERS DATA:');
+      orders.forEach((order, index) => {
+        console.log(`\nOrder #${index + 1}:`, JSON.stringify(order, null, 2));
+      });
+    } else if (!Array.isArray(orders)) {
+      console.log('\n⚠️ Response is not an array, full response:');
+      console.log(JSON.stringify(orders, null, 2));
+    } else {
+      console.log('\n📭 No orders found (empty array)');
+    }
+
+    console.log('===== END DHAN API RESPONSE =====\n');
+
 
     res.json({
       success: true,
