@@ -98,9 +98,11 @@ interface ProcessedOrder {
   product_name: string;
   serial_no: number;
 }
-
-export function OrderManagementPanel() {
-  const [orders, setOrders] = useState<ProcessedOrder[]>([]);
+interface OrderManagementPanelProps {
+  orders: ProcessedOrder[];
+  setOrders: React.Dispatch<React.SetStateAction<ProcessedOrder[]>>;
+}
+export function OrderManagementPanel({ orders, setOrders }: OrderManagementPanelProps) {
   const [filter, setFilter] = useState<'all' | 'pending' | 'traded' | 'rejected'>('all');
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting');
 

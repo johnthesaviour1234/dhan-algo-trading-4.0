@@ -17,8 +17,11 @@ const availableStrategies = [
   { id: '5', name: 'MACD Strategy', type: 'trend' },
   { id: '6', name: 'Pairs Trading', type: 'statistical' },
 ];
-
-export function LiveTradingPanel() {
+interface LiveTradingPanelProps {
+  orders: import('../App').ProcessedOrder[];
+  setOrders: React.Dispatch<React.SetStateAction<import('../App').ProcessedOrder[]>>;
+}
+export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
   const [selectedStrategies, setSelectedStrategies] = useState<typeof availableStrategies>([]);
   const [performanceData, setPerformanceData] = useState<StrategyPerformance[]>([]);
   const [isLive, setIsLive] = useState(false);
@@ -26,7 +29,6 @@ export function LiveTradingPanel() {
   const [activeStrategies, setActiveStrategies] = useState<Map<string, TestingStrategy | TestingStrategy2>>(new Map());
   const [hasAccessToken, setHasAccessToken] = useState(false);
   const [isSyncingOrders, setIsSyncingOrders] = useState(false);
-  const [syncedOrders, setSyncedOrders] = useState<any[]>([]);
 
   // Check for access token on mount and periodically
   useEffect(() => {
@@ -168,7 +170,26 @@ export function LiveTradingPanel() {
 
       if (res.ok && data.success && Array.isArray(data.orders)) {
         console.log(`✅ Order Book synced: ${data.orders.length} orders`);
-        setSyncedOrders(data.orders);
+        setOrders(data.orders.map((order: any) => ({
+          order_no: order.orderId || order.order_no || '',
+          symbol: order.tradingSymbol || order.symbol || '',
+          display_name: order.tradingSymbol || '',
+          txn_type: order.transactionType || 'BUY',
+          order_type: order.orderType || 'MARKET',
+          quantity: parseInt(order.quantity) || 0,
+          traded_qty: order.filledQty || 0,
+          remaining_quantity: order.remainingQuantity || 0,
+          price: parseFloat(order.price) || 0,
+          traded_price: 0,
+          avg_traded_price: order.averageTradedPrice || 0,
+          status: order.orderStatus || 'PENDING',
+          order_date_time: order.createTime || '',
+          last_updated_time: order.updateTime || '',
+          reason_description: order.omsErrorDescription || '',
+          exchange: order.exchangeSegment || '',
+          product_name: order.productType || '',
+          serial_no: 0
+        })));
         toast.success(`Synced ${data.orders.length} existing orders`);
         return true;
       } else {

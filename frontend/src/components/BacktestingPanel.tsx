@@ -52,39 +52,39 @@ const availableStrategies = [
   { id: '5', name: 'MACD Strategy', type: 'trend' },
   { id: '6', name: 'Pairs Trading', type: 'statistical' },
 ];
-
-export function BacktestingPanel() {
+interface BacktestingPanelProps {
+  orders: import('../App').ProcessedOrder[];
+  setOrders: React.Dispatch<React.SetStateAction<import('../App').ProcessedOrder[]>>;
+}
+export function BacktestingPanel({ orders, setOrders }: BacktestingPanelProps) {
   const [activeTab, setActiveTab] = useState<'backtesting' | 'live'>('backtesting');
-  
+
   return (
     <div>
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
         <button
           onClick={() => setActiveTab('backtesting')}
-          className={`px-6 py-3 rounded-md transition-all ${
-            activeTab === 'backtesting'
-              ? 'bg-white text-blue-600 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
-          }`}
+          className={`px-6 py-3 rounded-md transition-all ${activeTab === 'backtesting'
+            ? 'bg-white text-blue-600 shadow-sm'
+            : 'text-gray-600 hover:text-gray-900'
+            }`}
         >
           Backtesting
         </button>
         <button
           onClick={() => setActiveTab('live')}
-          className={`px-6 py-3 rounded-md transition-all ${
-            activeTab === 'live'
-              ? 'bg-white text-green-600 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
-          }`}
+          className={`px-6 py-3 rounded-md transition-all ${activeTab === 'live'
+            ? 'bg-white text-green-600 shadow-sm'
+            : 'text-gray-600 hover:text-gray-900'
+            }`}
         >
           Live Trading
         </button>
       </div>
 
       {/* Content */}
-      {activeTab === 'backtesting' ? <BacktestingContent /> : <LiveTradingPanel />}
-    </div>
+      {activeTab === 'backtesting' ? <BacktestingContent /> : <LiveTradingPanel orders={orders} setOrders={setOrders} />}   </div>
   );
 }
 
@@ -115,9 +115,9 @@ function BacktestingContent() {
 
   const runBacktest = () => {
     if (selectedStrategies.length === 0) return;
-    
+
     setIsRunning(true);
-    
+
     // Simulate backtesting
     setTimeout(() => {
       const results = selectedStrategies.map(strategy => {
@@ -130,7 +130,7 @@ function BacktestingContent() {
           trades: trades,
         };
       });
-      
+
       setPerformanceData(results);
       setHasResults(true);
       setIsRunning(false);
@@ -362,18 +362,18 @@ function generateMockTradesForStrategy(strategyName: string): Trade[] {
     const priceChange = (Math.random() * 20 - 10);
     const exitPrice = parseFloat((entryPrice + (direction === 'Long' ? priceChange : -priceChange)).toFixed(2));
     const quantity = Math.floor(Math.random() * 100 + 10);
-    
-    const pnl = direction === 'Long' 
-      ? (exitPrice - entryPrice) * quantity 
+
+    const pnl = direction === 'Long'
+      ? (exitPrice - entryPrice) * quantity
       : (entryPrice - exitPrice) * quantity;
     const pnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100 * (direction === 'Long' ? 1 : -1);
-    
+
     const durationDays = Math.floor((exitDate.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
     const duration = durationDays === 1 ? '1 day' : `${durationDays} days`;
 
     // Generate strategy-specific indicators
     let indicators: Record<string, number | boolean | string> = {};
-    
+
     if (strategyName === 'SMA Crossover') {
       const sma5 = parseFloat((entryPrice + Math.random() * 10 - 5).toFixed(2));
       const sma30 = parseFloat((entryPrice + Math.random() * 10 - 5).toFixed(2));
@@ -469,7 +469,7 @@ function MetricsDisplay({ metrics }: MetricsDisplayProps) {
       {timeframes.map(({ key, label }) => (
         <div key={key} className="bg-gray-50 rounded-lg p-4">
           <div className="text-gray-700 mb-3">{label}</div>
-          
+
           <div className="grid grid-cols-6 gap-3">
             <MetricCard
               icon={<TrendingUp className="w-4 h-4" />}
@@ -477,34 +477,34 @@ function MetricsDisplay({ metrics }: MetricsDisplayProps) {
               value={`${metrics[key].return > 0 ? '+' : ''}${metrics[key].return.toFixed(2)}%`}
               positive={metrics[key].return > 0}
             />
-            
+
             <MetricCard
               icon={<Activity className="w-4 h-4" />}
               label="Sharpe Ratio"
               value={metrics[key].sharpeRatio.toFixed(2)}
               positive={metrics[key].sharpeRatio > 1}
             />
-            
+
             <MetricCard
               icon={<TrendingDown className="w-4 h-4" />}
               label="Max Drawdown"
               value={`${metrics[key].maxDrawdown.toFixed(2)}%`}
               positive={metrics[key].maxDrawdown > -10}
             />
-            
+
             <MetricCard
               icon={<Target className="w-4 h-4" />}
               label="Win Rate"
               value={`${metrics[key].winRate.toFixed(2)}%`}
               positive={metrics[key].winRate > 50}
             />
-            
+
             <MetricCard
               icon={<BarChart3 className="w-4 h-4" />}
               label="Total Trades"
               value={metrics[key].totalTrades.toString()}
             />
-            
+
             <MetricCard
               icon={<DollarSign className="w-4 h-4" />}
               label="Profit Factor"
