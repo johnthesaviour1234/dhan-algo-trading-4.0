@@ -4,12 +4,16 @@ import { StrategyCard } from './StrategyCard';
 import type { StrategyPerformance, MetricData, Trade } from './BacktestingPanel';
 import { TestingStrategy } from '../strategies/TestingStrategy';
 import { TestingStrategy2 } from '../strategies/TestingStrategy2';
+import { TestingStrategy3 } from '../strategies/TestingStrategy3';
+import { TestingStrategy4 } from '../strategies/TestingStrategy4';
 import { toast } from './Toast';
 import { API_URL } from '../config/api';
 
 const availableStrategies = [
   { id: 'testing', name: 'Testing', type: 'auto' },
   { id: 'testing-2', name: 'Testing-2', type: 'auto' },
+  { id: 'testing-3', name: 'Testing-3', type: 'auto' },
+  { id: 'testing-4', name: 'Testing-4', type: 'auto' },
   { id: '1', name: 'SMA Crossover', type: 'trend' },
   { id: '2', name: 'RSI Mean Reversion', type: 'mean-reversion' },
   { id: '3', name: 'Breakout Strategy', type: 'momentum' },
@@ -26,7 +30,7 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
   const [performanceData, setPerformanceData] = useState<StrategyPerformance[]>([]);
   const [isLive, setIsLive] = useState(false);
   const [hasResults, setHasResults] = useState(false);
-  const [activeStrategies, setActiveStrategies] = useState<Map<string, TestingStrategy | TestingStrategy2>>(new Map());
+  const [activeStrategies, setActiveStrategies] = useState<Map<string, TestingStrategy | TestingStrategy2 | TestingStrategy3 | TestingStrategy4>>(new Map());
   const [hasAccessToken, setHasAccessToken] = useState(false);
   const [isSyncingOrders, setIsSyncingOrders] = useState(false);
 
@@ -264,7 +268,7 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     setIsLive(true);
 
     // Initialize strategies
-    const newActiveStrategies = new Map<string, TestingStrategy | TestingStrategy2>();
+    const newActiveStrategies = new Map<string, TestingStrategy | TestingStrategy2 | TestingStrategy3 | TestingStrategy4>();
     const initialPerformanceData: StrategyPerformance[] = [];
 
     selectedStrategies.forEach(strategy => {
@@ -334,6 +338,68 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
         });
 
         console.log('🚀 Testing-2 strategy initialized and started');
+      } else if (strategy.id === 'testing-3') {
+        // Create and start Testing-3 strategy (SHORT) with VALIDATED order placement
+        const testingStrategy3 = new TestingStrategy3(
+          (type, qty) => validateAndPlaceOrder('testing-3', type, qty),
+          (trade) => {
+            setPerformanceData(prevData => {
+              const strategyData = prevData.find(p => p.strategyId === 'testing-3');
+              if (strategyData) {
+                return prevData.map(p =>
+                  p.strategyId === 'testing-3'
+                    ? { ...p, trades: [trade, ...p.trades] }
+                    : p
+                );
+              }
+              return prevData;
+            });
+          }
+        );
+
+        testingStrategy3.start();
+        newActiveStrategies.set('testing-3', testingStrategy3);
+
+        initialPerformanceData.push({
+          strategyId: 'testing-3',
+          strategyName: 'Testing-3',
+          strategyType: 'auto',
+          metrics: generateInitialMetrics(),
+          trades: []
+        });
+
+        console.log('🚀 Testing-3 strategy initialized and started');
+      } else if (strategy.id === 'testing-4') {
+        // Create and start Testing-4 strategy (SHORT) with VALIDATED order placement
+        const testingStrategy4 = new TestingStrategy4(
+          (type, qty) => validateAndPlaceOrder('testing-4', type, qty),
+          (trade) => {
+            setPerformanceData(prevData => {
+              const strategyData = prevData.find(p => p.strategyId === 'testing-4');
+              if (strategyData) {
+                return prevData.map(p =>
+                  p.strategyId === 'testing-4'
+                    ? { ...p, trades: [trade, ...p.trades] }
+                    : p
+                );
+              }
+              return prevData;
+            });
+          }
+        );
+
+        testingStrategy4.start();
+        newActiveStrategies.set('testing-4', testingStrategy4);
+
+        initialPerformanceData.push({
+          strategyId: 'testing-4',
+          strategyName: 'Testing-4',
+          strategyType: 'auto',
+          metrics: generateInitialMetrics(),
+          trades: []
+        });
+
+        console.log('🚀 Testing-4 strategy initialized and started');
       } else {
         // Non-Testing strategies: initialize with empty data (no mocks)
         initialPerformanceData.push({
