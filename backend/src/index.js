@@ -166,23 +166,6 @@ app.post('/api/orders', async (req, res) => {
       },
       body: JSON.stringify(orderPayload)
     });
-
-    const data = await response.json();
-
-    console.log('Response status:', response.status);
-    console.log('Response data:', JSON.stringify(data, null, 2));
-
-    if (!response.ok) {
-      console.error('❌ Order placement failed:', data);
-      return res.status(response.status).json({
-        success: false,
-        error: data.errorMessage || data.message || 'Order placement failed',
-        details: data
-      });
-    }
-
-    console.log('✅ Order placed successfully');
-    console.log('   Order ID:', data.orderId);
     console.log('   Status:', data.orderStatus);
     console.log('===== END ORDER PLACEMENT =====\n');
 
@@ -192,6 +175,59 @@ app.post('/api/orders', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Order placement error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Get Order by ID - Fetch single order details
+app.get('/api/orders/:orderId', async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const token = accessToken || req.headers['access-token'];
+
+    if (!token) {
+      return res.status(404).json({
+        success: false,
+        error: 'Access token not found'
+      });
+    }
+
+    console.log(`\n📥 ===== FETCHING ORDER ${orderId} =====`);
+
+    const response = await fetch(`https://api.dhan.co/v2/orders/${orderId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'access-token': token
+      }
+    });
+
+    const order = await response.json();
+
+    console.log('Response status:', response.status);
+
+    if (!response.ok) {
+      console.error('❌ Failed to fetch order:', order);
+      return res.status(response.status).json({
+        success: false,
+        error: order.errorMessage || 'Failed to fetch order'
+      });
+    }
+
+    console.log('✅ Order fetched successfully');
+    console.log('Order Status:', order.orderStatus);
+    console.log('Filled Qty:', order.filledQty, '/', order.quantity);
+    console.log('===== END ORDER FETCH =====\n');
+
+    res.json({
+      success: true,
+      order: order
+    });
+  } catch (error) {
+    console.error('❌ Order fetch error:', error.message);
     res.status(500).json({
       success: false,
       error: error.message

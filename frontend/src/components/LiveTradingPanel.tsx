@@ -71,7 +71,11 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     }
   };
 
-  const placeOrder = async (type: 'BUY' | 'SELL', qty: number): Promise<{ price?: number }> => {
+  const placeOrder = async (type: 'BUY' | 'SELL', qty: number): Promise<{
+    price?: number;
+    orderId?: string;
+    orderStatus?: string;
+  }> => {
     try {
       // Get access token
       let token = localStorage.getItem('dhan_access_token');
@@ -123,7 +127,12 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
 
       if (res.ok && data.success) {
         console.log('✅ Order placed:', data);
-        return { price: 10 }; // TODO: Get actual price from order response or market data
+        console.log('📋 Order ID:', data.orderId);
+        return {
+          price: 10, // TODO: Get actual price from order response or market data
+          orderId: data.orderId,
+          orderStatus: data.orderStatus
+        };
       } else {
         throw new Error(data.error || 'Order failed');
       }
