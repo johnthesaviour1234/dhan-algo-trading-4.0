@@ -103,24 +103,25 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
         throw new Error('No access token');
       }
 
-      // Generate correlation ID for tracking
+      // Generate correlation ID for tracking (simple format like manual orders)
       const correlationId = strategyId
-        ? `${strategyId}|TG_${Date.now()}|${intent || 'TRADE'}|${type}`
+        ? `${strategyId}-${Date.now()}`
         : undefined;
 
       const orderPayload = {
         dhanClientId: "1102850909",
-        correlationId: correlationId, // Add correlation ID
+        correlationId: correlationId,
         transactionType: type,
         exchangeSegment: "NSE_EQ",
         productType: "INTRADAY",
         orderType: "MARKET",
         validity: "DAY",
-        securityId: "14366", // IDEA
-        quantity: qty,  // Send as number, not string
-        disclosedQuantity: 0,  // Send as number, not empty string
-        price: 0,  // Send as 0 for MARKET orders, not empty string
-        triggerPrice: 0,  // Send as 0, not empty string
+        tradingSymbol: "IDEA",  // Required for NSE_EQ despite being "optional" in docs
+        securityId: "14366",
+        quantity: qty,
+        disclosedQuantity: 0,
+        price: 0,
+        triggerPrice: 0,
         afterMarketOrder: false
       };
 
