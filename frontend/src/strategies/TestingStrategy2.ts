@@ -21,13 +21,13 @@ export class TestingStrategy2 {
     private isRunning = false;
     private buyInterval: NodeJS.Timeout | null = null;
     private exitTimeout: NodeJS.Timeout | null = null;
-    private currentPosition: { entryTime: Date; entryPrice: number } | null = null;
+    private currentPosition: { entryTime: Date; entryPrice: number; orderId?: string; correlationId?: string } | null = null;
     private onTradeCallback: (trade: Trade) => void;
-    private placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number }>;
+    private placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number; orderId?: string; correlationId?: string }>;
     private tradeCount = 0;
 
     constructor(
-        placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number }>,
+        placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number; orderId?: string; correlationId?: string }>,
         onTradeCallback: (trade: Trade) => void
     ) {
         this.placeOrderFn = placeOrderFn;
@@ -49,8 +49,37 @@ export class TestingStrategy2 {
         }, 120000); // 2 minutes
     }
 
+    async executeBuy() {
+        if (!this.isRunning) return;
+
+        try {
+            console.log('📈 [Testing-2] Executing BUY signal...');
+
+            // Place BUY order
+            const result = await this.placeOrderFn('BUY', 1);
+
+            const entryTime = new Date();
+            const entryPrice = result.price || 10; // Use actual price or fallback
+
+            this.currentPosition = {
+                entryTime,
+                entryPrice,
+                orderId: result.orderId,
+                correlationId: result.correlationId
+            };
+
+            toast.success(`Testing-2: BUY executed at ₹${entryPrice}`);
+            console.log(`✅ [Testing-2] BUY executed at ${entryTime.toISOString()}, price: ${entryPrice}`);
+            console.log(`📋 Order ID: ${result.orderId}`);
+            console.log(`🏷️  Correlation ID: ${result.correlationId}`);
+
+            // Schedule SELL after 5 seconds
+            this.exitTimeout = setTimeout(() => {
+                this.executeSell();
+            }, 5000); // 5 seconds
+        } catch (error: any) {
             console.error('❌ [Testing-2] BUY execution failed:', error);
-            toast.error(`Testing-2: BUY failed - ${error.message} `);
+            toast.error(`Testing-2: BUY failed - ${error.message}`);
             this.currentPosition = null;
         }
     }
@@ -69,8 +98,8 @@ export class TestingStrategy2 {
             );
 
             if (!verification.canClose) {
-                console.warn(`⚠️[Testing - 2] Cannot close position: ${ verification.reason } `);
-                toast.warning(`Testing - 2: Position already closed - ${ verification.reason } `);
+                console.warn(`⚠️ [Testing-2] Cannot close position: ${verification.reason}`);
+                toast.warning(`Testing-2: Position already closed - ${verification.reason}`);
                 this.currentPosition = null;
                 return; // Skip SELL order
             }
@@ -89,7 +118,7 @@ export class TestingStrategy2 {
 
             // Create trade record
             const trade: Trade = {
-                id: `testing - 2 - ${ Date.now() } -${ this.tradeCount++ } `,
+                id: `testing-2-${Date.now()}-${this.tradeCount++}`,
                 entryDate: entryTime.toISOString().split('T')[0] + ' ' + entryTime.toTimeString().split(' ')[0],
                 exitDate: exitTime.toISOString().split('T')[0] + ' ' + exitTime.toTimeString().split(' ')[0],
                 direction: 'Long',
@@ -110,8 +139,8 @@ export class TestingStrategy2 {
                 }
             };
 
-            toast.success(`Testing - 2: SELL executed at ₹${ exitPrice }, P & L: ₹${ pnl.toFixed(2) } `);
-            console.log(`✅[Testing - 2] SELL executed at ${ exitTime.toISOString() }, price: ${ exitPrice }, P & L: ${ pnl } `);
+            toast.success(`Testing-2: SELL executed at ₹${exitPrice}, P&L: ₹${pnl.toFixed(2)}`);
+            console.log(`✅ [Testing-2] SELL executed at ${exitTime.toISOString()}, price: ${exitPrice}, P&L: ${pnl}`);
 
             // Notify callback with trade
             this.onTradeCallback(trade);
@@ -120,7 +149,7 @@ export class TestingStrategy2 {
             this.currentPosition = null;
         } catch (error: any) {
             console.error('❌ [Testing-2] SELL execution failed:', error);
-            toast.error(`Testing - 2: SELL failed - ${ error.message } `);
+            toast.error(`Testing-2: SELL failed - ${error.message}`);
             this.currentPosition = null;
         }
     }
