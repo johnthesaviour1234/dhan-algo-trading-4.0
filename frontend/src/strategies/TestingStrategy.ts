@@ -90,6 +90,22 @@ export class TestingStrategy {
         try {
             console.log('📉 Executing SELL signal...');
 
+            // ✅ VERIFY ORDER STATUS BEFORE CLOSING
+            const { verifyOrderStatus } = await import('../utils/orderVerification');
+            const verification = await verifyOrderStatus(
+                this.currentPosition.orderId,
+                this.currentPosition.correlationId
+            );
+
+            if (!verification.canClose) {
+                console.warn(`⚠️ Cannot close position: ${verification.reason}`);
+                toast.warning(`Testing: Position already closed - ${verification.reason}`);
+                this.currentPosition = null;
+                return; // Skip SELL order
+            }
+
+            console.log('✅ Order verification passed - safe to close');
+
             // Place SELL order
             const result = await this.placeOrderFn('SELL', 1);
 

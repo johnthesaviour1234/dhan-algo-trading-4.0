@@ -1,6 +1,6 @@
 import type { Trade } from '../components/BacktestingPanel';
 
-type PlaceOrderFunc = (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number; orderId?: string; correlationId?: string }>;
+type PlaceOrderFunc = (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number }>;
 type OnTradeFunc = (trade: Trade) => void;
 
 /**
@@ -14,7 +14,7 @@ export class TestingStrategy4 {
     private placeOrder: PlaceOrderFunc;
     private onTrade: OnTradeFunc;
     private intervalId?: ReturnType<typeof setInterval>;
-    private currentPosition: { type: 'SHORT'; entryPrice: number; entryTime: Date; orderId?: string; correlationId?: string } | null = null;
+    private currentPosition: { type: 'SHORT'; entryPrice: number; entryTime: Date } | null = null;
 
     constructor(placeOrder: PlaceOrderFunc, onTrade: OnTradeFunc) {
         this.placeOrder = placeOrder;
@@ -58,13 +58,8 @@ export class TestingStrategy4 {
             this.currentPosition = {
                 type: 'SHORT',
                 entryPrice: sellPrice,
-                entryTime: sellTime,
-                orderId: result.orderId,
-                correlationId: result.correlationId
+                entryTime: sellTime
             };
-
-            console.log(`📋 Order ID: ${result.orderId}`);
-            console.log(`🏷️  Correlation ID: ${result.correlationId}`);
 
             // Close SHORT position after 5 seconds
             setTimeout(() => {
@@ -80,7 +75,23 @@ export class TestingStrategy4 {
         if (!this.isRunning || !this.currentPosition) return;
 
         try {
-            console.log('📈 Executing BUY signal (close SHORT)...');
+            console.log('📈 [Testing-4 SHORT] Executing BUY signal (close SHORT)...');
+
+            // ✅ VERIFY ORDER STATUS BEFORE CLOSING
+            const { verifyOrderStatus } = await import('../utils/orderVerification');
+            const verification = await verifyOrderStatus(
+                this.currentPosition.orderId,
+                this.currentPosition.correlationId
+            );
+
+            if (!verification.canClose) {
+                console.warn(`⚠️ [Testing-4] Cannot close SHORT position: ${verification.reason}`);
+                this.currentPosition = null;
+                return; // Skip BUY order
+            }
+
+            console.log('✅ [Testing-4] Order verification passed - safe to close SHORT');
+
             const result = await this.placeOrder('BUY', 1);
             const buyPrice = result.price || 0;
             const buyTime = new Date();
