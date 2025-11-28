@@ -1,6 +1,6 @@
 import type { Trade } from '../components/BacktestingPanel';
 
-type PlaceOrderFunc = (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number }>;
+type PlaceOrderFunc = (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number; orderId?: string; correlationId?: string }>;
 type OnTradeFunc = (trade: Trade) => void;
 
 /**
@@ -14,7 +14,7 @@ export class TestingStrategy3 {
     private placeOrder: PlaceOrderFunc;
     private onTrade: OnTradeFunc;
     private intervalId?: ReturnType<typeof setInterval>;
-    private currentPosition: { type: 'SHORT'; entryPrice: number; entryTime: Date } | null = null;
+    private currentPosition: { type: 'SHORT'; entryPrice: number; entryTime: Date; orderId?: string; correlationId?: string } | null = null;
 
     constructor(placeOrder: PlaceOrderFunc, onTrade: OnTradeFunc) {
         this.placeOrder = placeOrder;
@@ -58,8 +58,13 @@ export class TestingStrategy3 {
             this.currentPosition = {
                 type: 'SHORT',
                 entryPrice: sellPrice,
-                entryTime: sellTime
+                entryTime: sellTime,
+                orderId: result.orderId,
+                correlationId: result.correlationId
             };
+
+            console.log(`📋 Order ID: ${result.orderId}`);
+            console.log(`🏷️  Correlation ID: ${result.correlationId}`);
 
             // Close SHORT position after 5 seconds
             setTimeout(() => {

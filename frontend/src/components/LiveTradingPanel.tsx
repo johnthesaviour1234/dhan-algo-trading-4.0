@@ -71,10 +71,16 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     }
   };
 
-  const placeOrder = async (type: 'BUY' | 'SELL', qty: number): Promise<{
+  const placeOrder = async (
+    type: 'BUY' | 'SELL',
+    qty: number,
+    strategyId?: string,
+    intent?: 'ENTRY' | 'EXIT'
+  ): Promise<{
     price?: number;
     orderId?: string;
     orderStatus?: string;
+    correlationId?: string;
   }> => {
     try {
       // Get access token
@@ -97,8 +103,14 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
         throw new Error('No access token');
       }
 
+      // Generate correlation ID for tracking
+      const correlationId = strategyId
+        ? `${strategyId}|TG_${Date.now()}|${intent || 'TRADE'}|${type}`
+        : undefined;
+
       const orderPayload = {
         dhanClientId: "1102850909",
+        correlationId: correlationId, // Add correlation ID
         transactionType: type,
         exchangeSegment: "NSE_EQ",
         productType: "INTRADAY",
@@ -113,6 +125,9 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
       };
 
       console.log('📤 Placing order:', orderPayload);
+      if (correlationId) {
+        console.log('🏷️  Correlation ID:', correlationId);
+      }
 
       const res = await fetch(`${API_URL}/api/orders`, {
         method: 'POST',
@@ -128,10 +143,14 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
       if (res.ok && data.success) {
         console.log('✅ Order placed:', data);
         console.log('📋 Order ID:', data.orderId);
+        if (correlationId) {
+          console.log('🏷️  Correlation ID:', correlationId);
+        }
         return {
           price: 10, // TODO: Get actual price from order response or market data
           orderId: data.orderId,
-          orderStatus: data.orderStatus
+          orderStatus: data.orderStatus,
+          correlationId: correlationId
         };
       } else {
         throw new Error(data.error || 'Order failed');
@@ -147,8 +166,14 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
   const validateAndPlaceOrder = async (
     strategyId: string,
     type: 'BUY' | 'SELL',
-    qty: number
-  ): Promise<{ price?: number }> => {
+    qty: number,
+    intent: 'ENTRY' | 'EXIT' = 'ENTRY'
+  ): Promise<{
+    price?: number;
+    orderId?: string;
+    orderStatus?: string;
+    correlationId?: string;
+  }> => {
     const direction = strategyDirections[strategyId];
 
     if (!direction) {
@@ -168,9 +193,9 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
       throw new Error(validation.warning);
     }
 
-    // Validation passed - execute order
+    // Validation passed - execute order with tracking
     console.log(`✅ Position check passed for ${strategyId} ${type}`);
-    return placeOrder(type, qty);
+    return placeOrder(type, qty, strategyId, intent);
   };
 
   const removeStrategy = (strategyId: string) => {

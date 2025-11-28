@@ -21,13 +21,13 @@ export class TestingStrategy {
     private isRunning = false;
     private buyInterval: NodeJS.Timeout | null = null;
     private exitTimeout: NodeJS.Timeout | null = null;
-    private currentPosition: { entryTime: Date; entryPrice: number } | null = null;
+    private currentPosition: { entryTime: Date; entryPrice: number; orderId?: string; correlationId?: string } | null = null;
     private onTradeCallback: (trade: Trade) => void;
-    private placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number }>;
+    private placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number; orderId?: string; correlationId?: string }>;
     private tradeCount = 0;
 
     constructor(
-        placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number }>,
+        placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number; orderId?: string; correlationId?: string }>,
         onTradeCallback: (trade: Trade) => void
     ) {
         this.placeOrderFn = placeOrderFn;
@@ -61,10 +61,17 @@ export class TestingStrategy {
             const entryTime = new Date();
             const entryPrice = result.price || 10; // Use actual price or fallback
 
-            this.currentPosition = { entryTime, entryPrice };
+            this.currentPosition = {
+                entryTime,
+                entryPrice,
+                orderId: result.orderId,
+                correlationId: result.correlationId
+            };
 
             toast.success(`Testing: BUY executed at ₹${entryPrice}`);
             console.log(`✅ BUY executed at ${entryTime.toISOString()}, price: ${entryPrice}`);
+            console.log(`📋 Order ID: ${result.orderId}`);
+            console.log(`🏷️  Correlation ID: ${result.correlationId}`);
 
             // Schedule SELL after 5 seconds
             this.exitTimeout = setTimeout(() => {

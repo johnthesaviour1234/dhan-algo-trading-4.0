@@ -21,13 +21,13 @@ export class TestingStrategy2 {
     private isRunning = false;
     private buyInterval: NodeJS.Timeout | null = null;
     private exitTimeout: NodeJS.Timeout | null = null;
-    private currentPosition: { entryTime: Date; entryPrice: number } | null = null;
+    private currentPosition: { entryTime: Date; entryPrice: number; orderId?: string; correlationId?: string } | null = null;
     private onTradeCallback: (trade: Trade) => void;
-    private placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number }>;
+    private placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number; orderId?: string; correlationId?: string }>;
     private tradeCount = 0;
 
     constructor(
-        placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number }>,
+        placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number; orderId?: string; correlationId?: string }>,
         onTradeCallback: (trade: Trade) => void
     ) {
         this.placeOrderFn = placeOrderFn;
@@ -47,109 +47,85 @@ export class TestingStrategy2 {
                 this.executeBuy();
             }
         }, 120000); // 2 minutes
+        console.error('❌ [Testing-2] BUY execution failed:', error);
+        toast.error(`Testing-2: BUY failed - ${error.message}`);
+        this.currentPosition = null;
     }
-
-    async executeBuy() {
-        if (!this.isRunning) return;
-
-        try {
-            console.log('📈 [Testing-2] Executing BUY signal...');
-
-            // Place BUY order
-            const result = await this.placeOrderFn('BUY', 1);
-
-            const entryTime = new Date();
-            const entryPrice = result.price || 10; // Use actual price or fallback
-
-            this.currentPosition = { entryTime, entryPrice };
-
-            toast.success(`Testing-2: BUY executed at ₹${entryPrice}`);
-            console.log(`✅ [Testing-2] BUY executed at ${entryTime.toISOString()}, price: ${entryPrice}`);
-
-            // Schedule SELL after 5 seconds
-            this.exitTimeout = setTimeout(() => {
-                this.executeSell();
-            }, 5000); // 5 seconds
-        } catch (error: any) {
-            console.error('❌ [Testing-2] BUY execution failed:', error);
-            toast.error(`Testing-2: BUY failed - ${error.message}`);
-            this.currentPosition = null;
-        }
-    }
+}
 
     async executeSell() {
-        if (!this.isRunning || !this.currentPosition) return;
+    if (!this.isRunning || !this.currentPosition) return;
 
-        try {
-            console.log('📉 [Testing-2] Executing SELL signal...');
+    try {
+        console.log('📉 [Testing-2] Executing SELL signal...');
 
-            // Place SELL order
-            const result = await this.placeOrderFn('SELL', 1);
+        // Place SELL order
+        const result = await this.placeOrderFn('SELL', 1);
 
-            const exitTime = new Date();
-            const exitPrice = result.price || (this.currentPosition.entryPrice + 0.05); // Use actual price or simulate
-            const { entryTime, entryPrice } = this.currentPosition;
+        const exitTime = new Date();
+        const exitPrice = result.price || (this.currentPosition.entryPrice + 0.05); // Use actual price or simulate
+        const { entryTime, entryPrice } = this.currentPosition;
 
-            const pnl = (exitPrice - entryPrice) * 1;
-            const pnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100;
+        const pnl = (exitPrice - entryPrice) * 1;
+        const pnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100;
 
-            // Create trade record
-            const trade: Trade = {
-                id: `testing-2-${Date.now()}-${this.tradeCount++}`,
-                entryDate: entryTime.toISOString().split('T')[0] + ' ' + entryTime.toTimeString().split(' ')[0],
-                exitDate: exitTime.toISOString().split('T')[0] + ' ' + exitTime.toTimeString().split(' ')[0],
-                direction: 'Long',
-                entryPrice,
-                exitPrice,
-                quantity: 1,
-                pnl: parseFloat(pnl.toFixed(2)),
-                pnlPercent: parseFloat(pnlPercent.toFixed(2)),
-                duration: '5s',
-                signal: 'Buy',
-                brokerage: 0.05,
-                slippage: 0.01,
-                indicators: {
-                    'Entry Time': entryTime.toTimeString().split(' ')[0],
-                    'Exit Time': exitTime.toTimeString().split(' ')[0],
-                    'Auto Trade': true,
-                    'Interval': '2min',
-                }
-            };
+        // Create trade record
+        const trade: Trade = {
+            id: `testing-2-${Date.now()}-${this.tradeCount++}`,
+            entryDate: entryTime.toISOString().split('T')[0] + ' ' + entryTime.toTimeString().split(' ')[0],
+            exitDate: exitTime.toISOString().split('T')[0] + ' ' + exitTime.toTimeString().split(' ')[0],
+            direction: 'Long',
+            entryPrice,
+            exitPrice,
+            quantity: 1,
+            pnl: parseFloat(pnl.toFixed(2)),
+            pnlPercent: parseFloat(pnlPercent.toFixed(2)),
+            duration: '5s',
+            signal: 'Buy',
+            brokerage: 0.05,
+            slippage: 0.01,
+            indicators: {
+                'Entry Time': entryTime.toTimeString().split(' ')[0],
+                'Exit Time': exitTime.toTimeString().split(' ')[0],
+                'Auto Trade': true,
+                'Interval': '2min',
+            }
+        };
 
-            toast.success(`Testing-2: SELL executed at ₹${exitPrice}, P&L: ₹${pnl.toFixed(2)}`);
-            console.log(`✅ [Testing-2] SELL executed at ${exitTime.toISOString()}, price: ${exitPrice}, P&L: ${pnl}`);
+        toast.success(`Testing-2: SELL executed at ₹${exitPrice}, P&L: ₹${pnl.toFixed(2)}`);
+        console.log(`✅ [Testing-2] SELL executed at ${exitTime.toISOString()}, price: ${exitPrice}, P&L: ${pnl}`);
 
-            // Notify callback with trade
-            this.onTradeCallback(trade);
+        // Notify callback with trade
+        this.onTradeCallback(trade);
 
-            // Clear position
-            this.currentPosition = null;
-        } catch (error: any) {
-            console.error('❌ [Testing-2] SELL execution failed:', error);
-            toast.error(`Testing-2: SELL failed - ${error.message}`);
-            this.currentPosition = null;
-        }
-    }
-
-    stop() {
-        console.log('🛑 Testing-2 strategy stopped');
-        this.isRunning = false;
-
-        if (this.buyInterval) {
-            clearInterval(this.buyInterval);
-            this.buyInterval = null;
-        }
-
-        if (this.exitTimeout) {
-            clearTimeout(this.exitTimeout);
-            this.exitTimeout = null;
-        }
-
+        // Clear position
         this.currentPosition = null;
-        toast.info('Testing-2 strategy stopped');
+    } catch (error: any) {
+        console.error('❌ [Testing-2] SELL execution failed:', error);
+        toast.error(`Testing-2: SELL failed - ${error.message}`);
+        this.currentPosition = null;
+    }
+}
+
+stop() {
+    console.log('🛑 Testing-2 strategy stopped');
+    this.isRunning = false;
+
+    if (this.buyInterval) {
+        clearInterval(this.buyInterval);
+        this.buyInterval = null;
     }
 
-    isActive(): boolean {
-        return this.isRunning;
+    if (this.exitTimeout) {
+        clearTimeout(this.exitTimeout);
+        this.exitTimeout = null;
     }
+
+    this.currentPosition = null;
+    toast.info('Testing-2 strategy stopped');
+}
+
+isActive(): boolean {
+    return this.isRunning;
+}
 }
