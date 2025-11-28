@@ -117,10 +117,10 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
         orderType: "MARKET",
         validity: "DAY",
         securityId: "14366", // IDEA
-        quantity: qty.toString(),
-        disclosedQuantity: "",
-        price: "",
-        triggerPrice: "",
+        quantity: qty,  // Send as number, not string
+        disclosedQuantity: 0,  // Send as number, not empty string
+        price: 0,  // Send as 0 for MARKET orders, not empty string
+        triggerPrice: 0,  // Send as 0, not empty string
         afterMarketOrder: false
       };
 
@@ -140,7 +140,7 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
 
       const data = await res.json();
 
-      if (res.ok && data.success) {
+      if (res.ok && data.success && data.orderId) {
         console.log('✅ Order placed:', data);
         console.log('📋 Order ID:', data.orderId);
         if (correlationId) {
@@ -153,7 +153,13 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
           correlationId: correlationId
         };
       } else {
-        throw new Error(data.error || 'Order failed');
+        // Log full error details
+        console.error('❌ Order placement failed:');
+        console.error('   Response:', data);
+        console.error('   Error Code:', data.errorCode);
+        console.error('   Error Type:', data.errorType);
+        console.error('   Error Message:', data.errorMessage || data.error);
+        throw new Error(data.errorMessage || data.error || 'Order failed');
       }
     } catch (error: any) {
       console.error('❌ Order error:', error);
