@@ -190,33 +190,7 @@ app.get('/api/orders/:orderId', async (req, res) => {
 
     const order = await response.json();
 
-    console.log('Response status:', response.status);
-
-    if (!response.ok) {
-      console.error('❌ Failed to fetch order:', order);
-      return res.status(response.status).json({
-        success: false,
-        error: order.errorMessage || 'Failed to fetch order'
-      });
-    }
-
-    console.log('✅ Order fetched successfully');
-    console.log('Order Status:', order.orderStatus);
-    console.log('Filled Qty:', order.filledQty, '/', order.quantity);
-    console.log('===== END ORDER FETCH =====\n');
-
-    res.json({
-      success: true,
-      order: order
-    });
-  } catch (error) {
-    console.error('❌ Order fetch error:', error.message);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
+  });
 
 // Get Order by Correlation ID - Backup lookup method
 app.get('/api/orders/correlation/:correlationId', async (req, res) => {
