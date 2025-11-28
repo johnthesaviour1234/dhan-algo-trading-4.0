@@ -160,23 +160,6 @@ app.post('/api/orders', async (req, res) => {
 
     const response = await fetch('https://api.dhan.co/v2/orders', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'access-token': token
-      },
-      body: JSON.stringify(orderPayload)
-    });
-    console.log('   Status:', data.orderStatus);
-    console.log('===== END ORDER PLACEMENT =====\n');
-
-    res.json({
-      success: true,
-      ...data
-    });
-  } catch (error) {
-    console.error('❌ Order placement error:', error.message);
-    res.status(500).json({
-      success: false,
       error: error.message
     });
   }
