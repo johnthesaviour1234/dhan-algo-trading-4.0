@@ -444,6 +444,9 @@ const server = app.listen(PORT, () => {
 // WebSocket Server for Order Feed Proxy
 const wss = new WebSocketServer({ noServer: true });
 
+// WebSocket Server for Price Feed Proxy (NEW)
+const priceFeedWss = new WebSocketServer({ noServer: true });
+
 // Handle WebSocket upgrade requests
 server.on('upgrade', (request, socket, head) => {
   console.log('📡 WebSocket upgrade request:', request.url);
@@ -451,6 +454,10 @@ server.on('upgrade', (request, socket, head) => {
   if (request.url === '/ws/orderFeed') {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request);
+    });
+  } else if (request.url === '/ws/priceFeed') {
+    priceFeedWss.handleUpgrade(request, socket, head, (ws) => {
+      priceFeedWss.emit('connection', ws, request);
     });
   } else {
     socket.destroy();
@@ -649,6 +656,201 @@ wss.on('connection', async (frontendWs) => {
 });
 
 console.log('✅ WebSocket server ready on ws://localhost:' + PORT + '/ws/orderFeed');
+
+// Handle Price Feed WebSocket connections (NEW)
+priceFeedWss.on('connection', async (frontendWs) => {
+  console.log('🔌 Frontend connected to price feed proxy');
+
+  let dhanWs = null;
+
+  try {
+    // Get stored headers and messages from chrome extension captures
+    const priceFeedData = headersStore.priceFeedWeb;
+    const handshakeData = headersStore.priceFeedWebHandshake;
+    const subscriptions = headersStore.priceFeedWebSubscriptions;
+
+    console.log('📋 Price feed data:', priceFeedData ? 'Available' : 'Missing');
+    console.log('📋 Handshake data:', handshakeData ? 'Available' : 'Missing');
+    console.log('📋 Subscriptions:', subscriptions ? `${subscriptions.length} messages` : 'Missing');
+
+    if (!priceFeedData || !priceFeedData.fullUrl) {
+      const errorMsg = {
+        error: 'No price feed data captured. Please visit https://web.dhan.co first to capture WebSocket connection.'
+      };
+      console.error('❌', errorMsg.error);
+      frontendWs.send(JSON.stringify(errorMsg));
+      frontendWs.close();
+      return;
+    }
+
+    if (!handshakeData || !handshakeData.message) {
+      const errorMsg = {
+        error: 'No handshake message (703B) captured. Please refresh Dhan page.'
+      };
+      console.error('❌', errorMsg.error);
+      frontendWs.send(JSON.stringify(errorMsg));
+      frontendWs.close();
+      return;
+    }
+
+    // Import WebSocket client
+    const WebSocket = (await import('ws')).default;
+
+    console.log('\n🔗 ===== CONNECTING TO DHAN PRICE FEED =====');
+    console.log('📍 URL:', priceFeedData.fullUrl);
+    console.log('📋 WebSocket Connection Headers:');
+    console.log('   Host:', priceFeedData.Host || 'price-feed-web.dhan.co');
+    console.log('   Origin:', priceFeedData.Origin || 'https://web.dhan.co');
+    console.log('   User-Agent:', (priceFeedData['User-Agent'] || '').substring(0, 50) + '...');
+    console.log('   Sec-WebSocket-Version:', priceFeedData['Sec-WebSocket-Version']);
+    console.log('   Sec-WebSocket-Extensions:', priceFeedData['Sec-WebSocket-Extensions']);
+    console.log('===== END CONNECTION DETAILS =====\n');
+
+    // Connect to real Dhan WebSocket with proper headers
+    dhanWs = new WebSocket(priceFeedData.fullUrl, {
+      headers: {
+        'Host': priceFeedData.Host || 'price-feed-web.dhan.co',
+        'Origin': priceFeedData.Origin || 'https://web.dhan.co',
+        'User-Agent': priceFeedData['User-Agent'] || 'Mozilla/5.0',
+        'Sec-WebSocket-Version': priceFeedData['Sec-WebSocket-Version'] || '13',
+        'Sec-WebSocket-Extensions': priceFeedData['Sec-WebSocket-Extensions'] || ''
+      }
+    });
+
+    dhanWs.binaryType = 'arraybuffer';
+    console.log('✅ WebSocket object created, waiting for connection...');
+
+    // Handle Dhan connection open
+    dhanWs.on('open', () => {
+      console.log('✅ Connected to Dhan price feed');
+
+      // Send 703B handshake message to Dhan
+      try {
+        const handshakeBuffer = Buffer.from(handshakeData.message, 'base64');
+        dhanWs.send(handshakeBuffer);
+        console.log('📨 Sent 703B handshake to Dhan');
+        console.log('   Length:', handshakeBuffer.length, 'bytes');
+        console.log('   Base64 preview:', handshakeData.message.substring(0, 50) + '...');
+
+        // Send all subscription messages (129B each)
+        if (subscriptions && subscriptions.length > 0) {
+          console.log(`📨 Sending ${subscriptions.length} subscription messages...`);
+          subscriptions.forEach((sub, index) => {
+            const subBuffer = Buffer.from(sub.message, 'base64');
+            dhanWs.send(subBuffer);
+            console.log(`   ✅ Subscription #${index + 1}:`, subBuffer.length, 'bytes');
+          });
+          console.log(`✅ All ${subscriptions.length} subscriptions sent successfully`);
+        } else {
+          console.warn('⚠️ No subscription messages found. Price feed will not receive updates.');
+        }
+
+        // Notify frontend that connection is ready
+        frontendWs.send(JSON.stringify({
+          type: 'connection_ready',
+          message: 'Connected to price feed',
+          subscriptions: subscriptions ? subscriptions.length : 0
+        }));
+        console.log('📤 Sent connection_ready message to frontend');
+      } catch (error) {
+        console.error('❌ Error sending handshake/subscriptions:', error);
+      }
+    });
+
+    // Forward messages from Dhan to frontend (BINARY)
+    dhanWs.on('message', (data) => {
+      try {
+        const dataLength = data.length || data.byteLength;
+
+        // Skip heartbeat messages
+        if (dataLength === 1) {
+          console.log('💓 Heartbeat received from Dhan');
+          return;
+        }
+
+        console.log('\n📥 ===== MESSAGE FROM DHAN =====');
+        console.log('   Data type:', data instanceof Buffer ? 'Buffer' : typeof data);
+        console.log('   Data length:', dataLength, 'bytes');
+        console.log('   Frontend WS state:', frontendWs.readyState, '(1=OPEN)');
+
+        // Check if frontend connection is still open
+        if (frontendWs.readyState === 1) { // WebSocket.OPEN = 1
+          // Forward the binary message as-is
+          frontendWs.send(data);
+          console.log('   ✅ Binary message forwarded to frontend');
+        } else {
+          console.log('   ⚠️ Frontend not connected, message NOT forwarded');
+        }
+        console.log('===== END MESSAGE =====\n');
+      } catch (error) {
+        console.error('❌ Error forwarding message to frontend:', error);
+        console.error('   Error stack:', error.stack);
+      }
+    });
+
+    // Forward messages from frontend to Dhan (e.g., heartbeats)
+    frontendWs.on('message', (data) => {
+      try {
+        if (dhanWs && dhanWs.readyState === 1) { // WebSocket.OPEN = 1
+          dhanWs.send(data);
+
+          if (data.length === 0 || (typeof data === 'string' && data === '')) {
+            console.log('💓 Heartbeat forwarded to Dhan from frontend');
+          } else {
+            console.log('📤 Message forwarded to Dhan:', data.length, 'bytes');
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error forwarding message to Dhan:', error);
+      }
+    });
+
+    // Handle Dhan connection close
+    dhanWs.on('close', (code, reason) => {
+      console.log('🔒 Dhan price feed connection closed:', code, reason.toString());
+      if (frontendWs.readyState === 1) {
+        frontendWs.close();
+      }
+    });
+
+    // Handle frontend connection close
+    frontendWs.on('close', () => {
+      console.log('🔒 Frontend price feed connection closed');
+      if (dhanWs && dhanWs.readyState === 1) {
+        dhanWs.close();
+      }
+    });
+
+    // Handle Dhan connection errors
+    dhanWs.on('error', (error) => {
+      console.error('❌ Dhan price feed WebSocket error:', error.message);
+      if (frontendWs.readyState === 1) {
+        frontendWs.send(JSON.stringify({
+          error: `Dhan connection error: ${error.message}`
+        }));
+      }
+    });
+
+    // Handle frontend connection errors
+    frontendWs.on('error', (error) => {
+      console.error('❌ Frontend price feed WebSocket error:', error.message);
+    });
+
+  } catch (error) {
+    console.error('❌ Error setting up price feed proxy:', error);
+    if (frontendWs.readyState === 1) {
+      frontendWs.send(JSON.stringify({
+        error: `Proxy setup error: ${error.message}`
+      }));
+    }
+    frontendWs.close();
+    if (dhanWs && dhanWs.readyState === 1) {
+      dhanWs.close();
+    }
+  }
+});
+
+console.log('✅ WebSocket server ready on ws://localhost:' + PORT + '/ws/priceFeed');
 
 // Helper function to generate mock OHLC data
 function generateMockOHLC(count) {

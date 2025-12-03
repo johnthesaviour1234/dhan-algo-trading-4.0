@@ -3,6 +3,7 @@ import { TradingChart } from './components/TradingChart';
 import { BacktestingPanel } from './components/BacktestingPanel';
 import { OrderManagementPanel } from './components/OrderManagementPanel';
 import { AccessTokenInput } from './components/AccessTokenInput';
+import { WebSocketDataPanel } from './components/WebSocketDataPanel';
 import { ToastContainer } from './components/Toast';
 
 // Order type from OrderManagementPanel
@@ -41,6 +42,7 @@ export default function App() {
 
       <main className="max-w-[1600px] mx-auto p-6 space-y-6">
         <TradingChart />
+        <WebSocketDataPanel />
         <AccessTokenInput />
         <OrderManagementPanel orders={orders} setOrders={setOrders} />
         <BacktestingPanel orders={orders} setOrders={setOrders} />
