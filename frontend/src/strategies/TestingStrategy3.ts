@@ -77,21 +77,6 @@ export class TestingStrategy3 {
         try {
             console.log('📈 [Testing-3 SHORT] Executing BUY signal (close SHORT)...');
 
-            // ✅ VERIFY ORDER STATUS BEFORE CLOSING
-            const { verifyOrderStatus } = await import('../utils/orderVerification');
-            const verification = await verifyOrderStatus(
-                this.currentPosition.orderId,
-                this.currentPosition.correlationId
-            );
-
-            if (!verification.canClose) {
-                console.warn(`⚠️ [Testing-3] Cannot close SHORT position: ${verification.reason}`);
-                this.currentPosition = null;
-                return; // Skip BUY order
-            }
-
-            console.log('✅ [Testing-3] Order verification passed - safe to close SHORT');
-
             const result = await this.placeOrder('BUY', 1);
             const buyPrice = result.price || 0;
             const buyTime = new Date();

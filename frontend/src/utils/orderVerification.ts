@@ -1,6 +1,21 @@
+/**
+ * ⚠️ DEPRECATED - DO NOT USE ⚠️
+ * 
+ * This verification logic is FLAWED and has been removed from all strategies.
+ * 
+ * Problem: This checks order FULFILLMENT status (PENDING, TRADED, etc.) which
+ * indicates if the initial order was executed by the broker. It does NOT check
+ * whether the position was subsequently CLOSED (i.e., a bought share was sold,
+ * or a sold share was bought back).
+ * 
+ * This file is kept for reference only. All strategies now directly place
+ * closing orders without this incorrect verification step.
+ */
+
 import { API_URL } from '../config/api';
 
 /**
+ * @deprecated This function checks order execution status, NOT position closure status
  * Verify if an order is still open and can be closed
  * @param orderId - Dhan order ID
  * @param correlationId - Optional fallback correlation ID
