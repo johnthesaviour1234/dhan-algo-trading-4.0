@@ -41,62 +41,57 @@ app.post('/api/capture-headers/:type', (req, res) => {
   }
 
   // Special handling for priceFeedWebSubscriptions - deduplicate by security ID
-  const totalUnique = Object.keys(headersStore[type]).length;
-  console.log(`📥 ${isNew ? 'New' : 'Updated'} subscription for security ID: ${securityId}`);
-  console.log(`   Total unique subscriptions: ${totalUnique}`);
+  if (type === 'priceFeedWebSubscriptions') {
+    // Extract security ID from the base64 message
+    // 129B subscription format: bytes 109-129 contain security ID (null-padded string)  
+    try {
+      const base64Message = headers.message;
+      const binaryData = Buffer.from(base64Message, 'base64');
 
+      // Security ID is at bytes 109-129 (20 bytes, null-padded string)
+      const securityIdBytes = binaryData.slice(109, 129);
+      const securityId = securityIdBytes.toString('utf8').replace(/\0/g, '').trim();
 
-  // Extract security ID from the base64 message
-  // 129B subscription format: bytes 109-129 contain security ID (null-padded string)  
-  try {
-    const base64Message = headers.message;
-    const binaryData = Buffer.from(base64Message, 'base64');
+      // Store/replace subscription by security ID
+      const isNew = !headersStore[type][securityId];
+      headersStore[type][securityId] = headers;
 
+      const totalUnique = Object.keys(headersStore[type]).length;
+      console.log(`📥 ${isNew ? 'New' : 'Updated'} subscription for security ID: ${securityId}`);
+      console.log(`   Total unique subscriptions: ${totalUnique}`);
 
-    // Security ID is at bytes 109-129 (20 bytes, null-padded string)
-    const securityIdBytes = binaryData.slice(109, 129);
-    const securityId = securityIdBytes.toString('utf8').replace(/\0/g, '').trim();
-
-    // Store/replace subscription by security ID
-    const isNew = !headersStore[type][securityId];
-    headersStore[type][securityId] = headers;
-
-    const totalUnique = Object.keys(headersStore[type]).length;
-    console.log(`📥 ${isNew ? 'New' : 'Updated'} subscription for security ID: ${securityId}`);
-    console.log(`   Total unique subscriptions: ${totalUnique}`);
-
-    return res.json({
-      success: true,
-      message: `Subscription for ${securityId} ${isNew ? 'added' : 'updated'}`,
-      securityId: securityId,
-      totalSubscriptions: totalUnique,
-      isNew: isNew
-    });
-  } catch (error) {
-    console.error('❌ Error parsing subscription message:', error);
-    // Fallback: store with timestamp if parsing fails
-    const fallbackKey = `unknown_${Date.now()}`;
-    headersStore[type][fallbackKey] = headers;
-    return res.json({
-      success: true,
-      message: 'Subscription captured (parsing failed)',
-      totalSubscriptions: Object.keys(headersStore[type]).length
-    });
+      return res.json({
+        success: true,
+        message: `Subscription for ${securityId} ${isNew ? 'added' : 'updated'}`,
+        securityId: securityId,
+        totalSubscriptions: totalUnique,
+        isNew: isNew
+      });
+    } catch (error) {
+      console.error('❌ Error parsing subscription message:', error);
+      // Fallback: store with timestamp if parsing fails
+      const fallbackKey = `unknown_${Date.now()}`;
+      headersStore[type][fallbackKey] = headers;
+      return res.json({
+        success: true,
+        message: 'Subscription captured (parsing failed)',
+        totalSubscriptions: Object.keys(headersStore[type]).length
+      });
+    }
   }
-}
 
-// Special handling for handshakes - always replace with latest
-if (type === 'priceFeedWebHandshake' || type === 'orderFeedHandshake') {
-  headersStore[type] = headers; // Replace, don't merge
-  console.log(`📥 Replaced ${type} with latest`);
-  return res.json({ success: true, message: `${type} updated with latest` });
-}
+  // Special handling for handshakes - always replace with latest
+  if (type === 'priceFeedWebHandshake' || type === 'orderFeedHandshake') {
+    headersStore[type] = headers; // Replace, don't merge
+    console.log(`📥 Replaced ${type} with latest`);
+    return res.json({ success: true, message: `${type} updated with latest` });
+  }
 
-// Update headers for this type (normal behavior)
-headersStore[type] = { ...headersStore[type], ...headers };
+  // Update headers for this type (normal behavior)
+  headersStore[type] = { ...headersStore[type], ...headers };
 
-console.log(`📥 Captured headers for ${type}:`, Object.keys(headers));
-res.json({ success: true, message: `Headers captured for ${type}` });
+  console.log(`📥 Captured headers for ${type}:`, Object.keys(headers));
+  res.json({ success: true, message: `Headers captured for ${type}` });
 });
 
 // Access token endpoints
