@@ -47,15 +47,14 @@ app.post('/api/capture-headers/:type', (req, res) => {
     }
 
     // Extract security ID from the base64 message
-    // 129B subscription format: bytes 51-70 contain security ID (20 bytes, null-padded string)
+    // 129B subscription format: bytes  1-4 contain security ID (Uint32)  
     try {
       const base64Message = headers.message;
       const binaryData = Buffer.from(base64Message, 'base64');
 
-      // Security ID is at bytes 51-71 (20 bytes)
-      const securityIdBytes = binaryData.slice(51, 71);
-      // Convert to string and trim null bytes
-      const securityId = securityIdBytes.toString('utf8').replace(/\0/g, '').trim();
+
+      // Security ID is at bytes 1-4 (Uint32, little-endian)
+      const securityId = binaryData.readUInt32LE(1).toString();
 
       // Store/replace subscription by security ID
       const isNew = !headersStore[type][securityId];

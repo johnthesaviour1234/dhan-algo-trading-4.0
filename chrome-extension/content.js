@@ -73,6 +73,7 @@ window.WebSocket = function (url, protocols) {
 
             // Extract all information
             const payload = {
+                fullUrl: url,
                 url: url,
                 host: wsUrl.host,
                 hostname: wsUrl.hostname,
