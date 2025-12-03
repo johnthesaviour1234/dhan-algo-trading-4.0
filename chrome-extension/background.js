@@ -99,6 +99,52 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
                 console.log('⚠️ Not a WebSocket upgrade request (no Upgrade: websocket header)');
             }
         }
+
+        // Handle WebSocket price feed connection (NEW)
+        // WebSocket connections start as HTTPS requests with Upgrade: websocket header
+        if (details.url.includes('price-feed-web.dhan.co')) {
+            console.log('🔌 Price Feed Web URL detected:', details.url);
+            console.log('📋 All headers:', details.requestHeaders.map(h => h.name));
+
+            // Check if this is a WebSocket upgrade request
+            const upgradeHeader = details.requestHeaders.find(h =>
+                h.name.toLowerCase() === 'upgrade' && h.value.toLowerCase() === 'websocket'
+            );
+
+            if (upgradeHeader) {
+                console.log('✨ Price Feed Web WebSocket upgrade request confirmed!');
+
+                const url = new URL(details.url);
+                const payload = {
+                    timestamp: new Date().toISOString(),
+                    fullUrl: details.url
+                };
+
+                // Capture all relevant headers
+                details.requestHeaders.forEach(h => {
+                    payload[h.name] = h.value;
+                });
+
+                console.log('📡 Captured Price Feed Web Headers:', JSON.stringify(payload, null, 2));
+
+                // Send to backend
+                fetch('http://localhost:3001/api/capture-headers/priceFeedWeb', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                })
+                    .then(response => {
+                        console.log('✅ Price feed web headers sent to backend:', response.status);
+                        return response.json();
+                    })
+                    .then(data => console.log('📥 Backend response:', data))
+                    .catch(error => console.error('❌ Error sending price feed web headers:', error));
+            } else {
+                console.log('⚠️ Not a WebSocket upgrade request (no Upgrade: websocket header)');
+            }
+        }
     },
     { urls: ["https://*.dhan.co/*"] }, // WebSocket upgrades come through as HTTPS
     ["requestHeaders", "extraHeaders"]

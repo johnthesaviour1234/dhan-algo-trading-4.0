@@ -17,6 +17,9 @@ const headersStore = {
   getData: {},
   orderFeed: {}, // WebSocket order feed headers  
   orderFeedHandshake: {}, // 703B handshake message
+  priceFeedWeb: {}, // WebSocket price feed headers (NEW)
+  priceFeedWebHandshake: {}, // 703B initialization message (NEW)
+  priceFeedWebSubscriptions: [], // Array of 129B subscription messages (NEW)
   orders: {} // Future proofing
 };
 
@@ -37,7 +40,22 @@ app.post('/api/capture-headers/:type', (req, res) => {
     headersStore[type] = {};
   }
 
-  // Update headers for this type
+  // Special handling for priceFeedWebSubscriptions - append to array
+  if (type === 'priceFeedWebSubscriptions') {
+    if (!Array.isArray(headersStore[type])) {
+      headersStore[type] = [];
+    }
+    headersStore[type].push(headers);
+    console.log(`📥 Captured subscription #${headersStore[type].length} for ${type}`);
+    console.log(`   Total subscriptions: ${headersStore[type].length}`);
+    return res.json({
+      success: true,
+      message: `Subscription #${headersStore[type].length} captured for ${type}`,
+      totalSubscriptions: headersStore[type].length
+    });
+  }
+
+  // Update headers for this type (normal behavior)
   headersStore[type] = { ...headersStore[type], ...headers };
 
   console.log(`📥 Captured headers for ${type}:`, Object.keys(headers));
