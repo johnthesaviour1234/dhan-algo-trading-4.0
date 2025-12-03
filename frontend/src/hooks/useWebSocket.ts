@@ -81,11 +81,8 @@ export function useWebSocket(): UseWebSocketReturn {
                     const messages = decoder.parseMessage(event.data);
 
                     messages.forEach(msg => {
-                        // Filter for Idea Vodafone only (security IDs from subscriptions: 14366, 13745)
-                        const isIdeaVodafone = msg.data && (
-                            msg.data.securityId === '14366' ||
-                            msg.data.securityId === '13745'
-                        );
+                        // Filter for Idea Vodafone only (security ID: 14366)
+                        const isIdeaVodafone = msg.data && msg.data.securityId === '14366';
 
                         if (!isIdeaVodafone && msg.type !== 'Heartbeat') {
                             // Skip messages for other stocks

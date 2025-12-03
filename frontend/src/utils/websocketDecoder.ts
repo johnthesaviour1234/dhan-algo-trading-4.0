@@ -52,6 +52,13 @@ export class WebSocketDecoder {
 
                 const packet = data.slice(offset, offset + packetLength);
 
+                // 🔍 DEBUG: Log raw packet hex for analysis
+                const hexDump = Array.from(new Uint8Array(packet))
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join(' ');
+                console.log(`🔍 DEBUG Packet | Type: ${messageType} | Exchange: ${exchange} | SecID: ${securityId} | Len: ${packetLength}`);
+                console.log(`   Raw Hex: ${hexDump}`);
+
                 // Decode based on message type
                 switch (messageType) {
                     case 1:
@@ -108,6 +115,8 @@ export class WebSocketDecoder {
         const atp = new Float32Array(buffer.slice(21, 25))[0];
         const oi = new Uint32Array(buffer.slice(25, 29))[0];
         const timestamp = new Uint32Array(buffer.slice(29, 33))[0];
+
+        console.log(`   📊 LTP Decoded: ltp=${ltp.toFixed(2)} | ltq=${ltq} | vol=${volume} | atp=${atp.toFixed(2)} | oi=${oi} | ts=${timestamp}`);
 
         return {
             exchange: this.getExchangeName(exchange),
@@ -194,6 +203,8 @@ export class WebSocketDecoder {
 
         const change = ltp - prevClose;
         const changePer = (change / prevClose) * 100;
+
+        console.log(`   📈 Quote Decoded: ltp=${ltp.toFixed(2)} | o=${open.toFixed(2)} | h=${high.toFixed(2)} | l=${low.toFixed(2)} | pc=${prevClose.toFixed(2)} | ts=${timestamp}`);
 
         return {
             exchange: this.getExchangeName(exchange),
