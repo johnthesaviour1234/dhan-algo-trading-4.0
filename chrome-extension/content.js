@@ -1,5 +1,9 @@
 // Content script running in MAIN world (page context)
 // With world: "MAIN", this runs directly in the page's JavaScript context
+//
+// RECOMMENDED URL TO VISIT FOR PRICE FEED:
+// https://web.dhan.co/Charts?exch=NSE&seg=E&secid=14366
+// (This creates only ONE WebSocket connection for cleaner capture)
 
 console.log('🔧 Dhan WebSocket Interceptor: Script loaded in MAIN world');
 
