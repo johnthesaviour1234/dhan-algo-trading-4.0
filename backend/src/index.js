@@ -19,7 +19,7 @@ const headersStore = {
   orderFeedHandshake: {}, // 703B handshake message
   priceFeedWeb: {}, // WebSocket price feed headers (NEW)
   priceFeedWebHandshake: {}, // 703B initialization message (NEW)
-  priceFeedWebSubscriptions: [], // Array of 129B subscription messages (NEW)
+  priceFeedWebSubscriptions: {}, // Object of 129B subscription messages keyed by security ID (NEW)
   orders: {} // Future proofing
 };
 
@@ -40,19 +40,56 @@ app.post('/api/capture-headers/:type', (req, res) => {
     headersStore[type] = {};
   }
 
-  // Special handling for priceFeedWebSubscriptions - append to array
+  // Special handling for priceFeedWebSubscriptions - deduplicate by security ID
   if (type === 'priceFeedWebSubscriptions') {
-    if (!Array.isArray(headersStore[type])) {
-      headersStore[type] = [];
+    if (typeof headersStore[type] !== 'object' || Array.isArray(headersStore[type])) {
+      headersStore[type] = {};
     }
-    headersStore[type].push(headers);
-    console.log(`📥 Captured subscription #${headersStore[type].length} for ${type}`);
-    console.log(`   Total subscriptions: ${headersStore[type].length}`);
-    return res.json({
-      success: true,
-      message: `Subscription #${headersStore[type].length} captured for ${type}`,
-      totalSubscriptions: headersStore[type].length
-    });
+
+    // Extract security ID from the base64 message
+    // 129B subscription format: bytes 51-70 contain security ID (20 bytes, null-padded string)
+    try {
+      const base64Message = headers.message;
+      const binaryData = Buffer.from(base64Message, 'base64');
+
+      // Security ID is at bytes 51-71 (20 bytes)
+      const securityIdBytes = binaryData.slice(51, 71);
+      // Convert to string and trim null bytes
+      const securityId = securityIdBytes.toString('utf8').replace(/\0/g, '').trim();
+
+      // Store/replace subscription by security ID
+      const isNew = !headersStore[type][securityId];
+      headersStore[type][securityId] = headers;
+
+      const totalUnique = Object.keys(headersStore[type]).length;
+      console.log(`📥 ${isNew ? 'New' : 'Updated'} subscription for security ID: ${securityId}`);
+      console.log(`   Total unique subscriptions: ${totalUnique}`);
+
+      return res.json({
+        success: true,
+        message: `Subscription for ${securityId} ${isNew ? 'added' : 'updated'}`,
+        securityId: securityId,
+        totalSubscriptions: totalUnique,
+        isNew: isNew
+      });
+    } catch (error) {
+      console.error('❌ Error parsing subscription message:', error);
+      // Fallback: store with timestamp if parsing fails
+      const fallbackKey = `unknown_${Date.now()}`;
+      headersStore[type][fallbackKey] = headers;
+      return res.json({
+        success: true,
+        message: 'Subscription captured (parsing failed)',
+        totalSubscriptions: Object.keys(headersStore[type]).length
+      });
+    }
+  }
+
+  // Special handling for handshakes - always replace with latest
+  if (type === 'priceFeedWebHandshake' || type === 'orderFeedHandshake') {
+    headersStore[type] = headers; // Replace, don't merge
+    console.log(`📥 Replaced ${type} with latest`);
+    return res.json({ success: true, message: `${type} updated with latest` });
   }
 
   // Update headers for this type (normal behavior)
@@ -671,7 +708,7 @@ priceFeedWss.on('connection', async (frontendWs) => {
 
     console.log('📋 Price feed data:', priceFeedData ? 'Available' : 'Missing');
     console.log('📋 Handshake data:', handshakeData ? 'Available' : 'Missing');
-    console.log('📋 Subscriptions:', subscriptions ? `${subscriptions.length} messages` : 'Missing');
+    console.log('📋 Subscriptions:', subscriptions ? `${Object.keys(subscriptions).length} unique securities` : 'Missing');
 
     if (!priceFeedData || !priceFeedData.fullUrl) {
       const errorMsg = {
@@ -733,14 +770,15 @@ priceFeedWss.on('connection', async (frontendWs) => {
         console.log('   Base64 preview:', handshakeData.message.substring(0, 50) + '...');
 
         // Send all subscription messages (129B each)
-        if (subscriptions && subscriptions.length > 0) {
-          console.log(`📨 Sending ${subscriptions.length} subscription messages...`);
-          subscriptions.forEach((sub, index) => {
+        const subscriptionsList = Object.values(subscriptions);
+        if (subscriptionsList && subscriptionsList.length > 0) {
+          console.log(`📨 Sending ${subscriptionsList.length} unique subscription messages...`);
+          subscriptionsList.forEach((sub, index) => {
             const subBuffer = Buffer.from(sub.message, 'base64');
             dhanWs.send(subBuffer);
             console.log(`   ✅ Subscription #${index + 1}:`, subBuffer.length, 'bytes');
           });
-          console.log(`✅ All ${subscriptions.length} subscriptions sent successfully`);
+          console.log(`✅ All ${subscriptionsList.length} subscriptions sent successfully`);
         } else {
           console.warn('⚠️ No subscription messages found. Price feed will not receive updates.');
         }
@@ -749,7 +787,7 @@ priceFeedWss.on('connection', async (frontendWs) => {
         frontendWs.send(JSON.stringify({
           type: 'connection_ready',
           message: 'Connected to price feed',
-          subscriptions: subscriptions ? subscriptions.length : 0
+          subscriptions: subscriptionsList ? subscriptionsList.length : 0
         }));
         console.log('📤 Sent connection_ready message to frontend');
       } catch (error) {
