@@ -41,61 +41,42 @@ app.post('/api/capture-headers/:type', (req, res) => {
   }
 
   // Special handling for priceFeedWebSubscriptions - deduplicate by security ID
-  if (type === 'priceFeedWebSubscriptions') {
-    if (typeof headersStore[type] !== 'object' || Array.isArray(headersStore[type])) {
-      headersStore[type] = {};
-    }
+  const totalUnique = Object.keys(headersStore[type]).length;
+  console.log(`📥 ${isNew ? 'New' : 'Updated'} subscription for security ID: ${securityId}`);
+  console.log(`   Total unique subscriptions: ${totalUnique}`);
 
-    // Extract security ID from the base64 message
-    // 129B subscription format: bytes  1-4 contain security ID (Uint32)  
-    try {
-      const base64Message = headers.message;
-      const binaryData = Buffer.from(base64Message, 'base64');
-
-
-      // Security ID is at bytes 1-4 (Uint32, little-endian)
-      const securityId = binaryData.readUInt32LE(1).toString();
-
-      // Store/replace subscription by security ID
-      const isNew = !headersStore[type][securityId];
-      headersStore[type][securityId] = headers;
-
-      const totalUnique = Object.keys(headersStore[type]).length;
-      console.log(`📥 ${isNew ? 'New' : 'Updated'} subscription for security ID: ${securityId}`);
-      console.log(`   Total unique subscriptions: ${totalUnique}`);
-
-      return res.json({
-        success: true,
-        message: `Subscription for ${securityId} ${isNew ? 'added' : 'updated'}`,
-        securityId: securityId,
-        totalSubscriptions: totalUnique,
-        isNew: isNew
-      });
-    } catch (error) {
-      console.error('❌ Error parsing subscription message:', error);
-      // Fallback: store with timestamp if parsing fails
-      const fallbackKey = `unknown_${Date.now()}`;
-      headersStore[type][fallbackKey] = headers;
-      return res.json({
-        success: true,
-        message: 'Subscription captured (parsing failed)',
-        totalSubscriptions: Object.keys(headersStore[type]).length
-      });
-    }
+  return res.json({
+    success: true,
+    message: `Subscription for ${securityId} ${isNew ? 'added' : 'updated'}`,
+    securityId: securityId,
+    totalSubscriptions: totalUnique,
+    isNew: isNew
+  });
+} catch (error) {
+  console.error('❌ Error parsing subscription message:', error);
+  // Fallback: store with timestamp if parsing fails
+  const fallbackKey = `unknown_${Date.now()}`;
+  headersStore[type][fallbackKey] = headers;
+  return res.json({
+    success: true,
+    message: 'Subscription captured (parsing failed)',
+    totalSubscriptions: Object.keys(headersStore[type]).length
+  });
+}
   }
 
-  // Special handling for handshakes - always replace with latest
-  if (type === 'priceFeedWebHandshake' || type === 'orderFeedHandshake') {
-    headersStore[type] = headers; // Replace, don't merge
-    console.log(`📥 Replaced ${type} with latest`);
-    return res.json({ success: true, message: `${type} updated with latest` });
-  }
+// Special handling for handshakes - always replace with latest
+if (type === 'priceFeedWebHandshake' || type === 'orderFeedHandshake') {
+  headersStore[type] = headers; // Replace, don't merge
+  console.log(`📥 Replaced ${type} with latest`);
+  return res.json({ success: true, message: `${type} updated with latest` });
+}
 
-  // Update headers for this type (normal behavior)
-  headersStore[type] = { ...headersStore[type], ...headers };
+// Update headers for this type (normal behavior)
+headersStore[type] = { ...headersStore[type], ...headers };
 
-  console.log(`📥 Captured headers for ${type}:`, Object.keys(headers));
-  res.json({ success: true, message: `Headers captured for ${type}` });
+console.log(`📥 Captured headers for ${type}:`, Object.keys(headers));
+res.json({ success: true, message: `Headers captured for ${type}` });
 });
 
 // Access token endpoints
