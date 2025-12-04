@@ -8,6 +8,10 @@ import { TopBidAskDisplay } from './websocket/TopBidAskDisplay';
 import { PrevCloseOIDisplay } from './websocket/PrevCloseOIDisplay';
 import { CircuitLimitsDisplay } from './websocket/CircuitLimitsDisplay';
 import { WeekHighLowDisplay } from './websocket/WeekHighLowDisplay';
+import { OHLCTableDisplay } from './websocket/OHLCTableDisplay';
+import { RealtimeAggregator, OHLCCandle } from '../utils/RealtimeAggregator';
+import { useChartData } from '../contexts/ChartDataContext';
+import { useRef, useEffect, useState } from 'react';
 
 // Interface definitions based on Dhan WebSocket protocol
 export interface LTPData {
@@ -116,6 +120,27 @@ export function WebSocketDataPanel() {
     error
   } = useWebSocket();
 
+  // Get historical chart data from context
+  const { historicalBars } = useChartData();
+
+  // Initialize aggregator for real-time 1-min candles
+  const aggregatorRef = useRef(new RealtimeAggregator());
+  const [liveCandle, setLiveCandle] = useState<OHLCCandle | null>(null);
+
+  // Process LTP updates through aggregator
+  useEffect(() => {
+    if (ltpData) {
+      const symbol = ltpData.securityId; // Use security ID as symbol
+      const candle = aggregatorRef.current.processTick(
+        symbol,
+        ltpData.ltp,
+        ltpData.volume,
+        ltpData.timestamp
+      );
+      setLiveCandle(candle);
+    }
+  }, [ltpData]);
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
       {/* Header */}
@@ -178,6 +203,14 @@ export function WebSocketDataPanel() {
           <MarketDepthDisplay data={marketDepth} />
         </div>
       )}
+
+      {/* 1-Minute OHLC Table - Historical + Live Aggregated Data */}
+      <div className="mt-4">
+        <OHLCTableDisplay
+          historicalData={historicalBars}
+          liveCandle={liveCandle}
+        />
+      </div>
     </div>
   );
 }

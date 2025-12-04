@@ -5,6 +5,7 @@ import { OrderManagementPanel } from './components/OrderManagementPanel';
 import { AccessTokenInput } from './components/AccessTokenInput';
 import { WebSocketDataPanel } from './components/WebSocketDataPanel';
 import { ToastContainer } from './components/Toast';
+import { ChartDataProvider } from './contexts/ChartDataContext';
 
 // Order type from OrderManagementPanel
 export interface ProcessedOrder {
@@ -33,20 +34,22 @@ export default function App() {
   const [orders, setOrders] = useState<ProcessedOrder[]>([]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <ToastContainer />
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <h1 className="text-gray-900">Algorithmic Trading Platform</h1>
-        <p className="text-gray-600">Backtesting & Live Trading</p>
-      </header>
+    <ChartDataProvider>
+      <div className="min-h-screen bg-gray-50">
+        <ToastContainer />
+        <header className="bg-white border-b border-gray-200 px-6 py-4">
+          <h1 className="text-gray-900">Algorithmic Trading Platform</h1>
+          <p className="text-gray-600">Backtesting & Live Trading</p>
+        </header>
 
-      <main className="max-w-[1600px] mx-auto p-6 space-y-6">
-        <TradingChart />
-        <WebSocketDataPanel />
-        <AccessTokenInput />
-        <OrderManagementPanel orders={orders} setOrders={setOrders} />
-        <BacktestingPanel orders={orders} setOrders={setOrders} />
-      </main>
-    </div>
+        <main className="max-w-[1600px] mx-auto p-6 space-y-6">
+          <TradingChart />
+          <WebSocketDataPanel />
+          <AccessTokenInput />
+          <OrderManagementPanel orders={orders} setOrders={setOrders} />
+          <BacktestingPanel orders={orders} setOrders={setOrders} />
+        </main>
+      </div>
+    </ChartDataProvider>
   );
 }

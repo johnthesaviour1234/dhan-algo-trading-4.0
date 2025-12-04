@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi, CandlestickData, Time } from 'lightweight-charts';
-import { ChartDataFetcher } from '../lib/ChartDataFetcher';
+import { useChartData } from '../contexts/ChartDataContext';
 
 export function TradingChart() {
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -8,11 +8,8 @@ export function TradingChart() {
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Data fetcher instance
-  const dataFetcherRef = useRef<ChartDataFetcher>(new ChartDataFetcher());
-
-  // Track all loaded bars for efficient merging
-  const allBarsRef = useRef<CandlestickData[]>([]);
+  // Use shared chart data context
+  const { historicalBars, setHistoricalBars, dataFetcher } = useChartData();
 
   // Track earliest loaded time
   const earliestTimeRef = useRef<number>(Math.floor(Date.now() / 1000));
@@ -92,7 +89,7 @@ export function TradingChart() {
         const now = Math.floor(Date.now() / 1000);
         const sevenDaysAgo = now - (7 * 24 * 60 * 60);
 
-        const bars = await dataFetcherRef.current.getBars(
+        const bars = await dataFetcher.getBars(
           symbolConfig.symbol,
           symbolConfig.exchange,
           symbolConfig.segment,
@@ -104,7 +101,7 @@ export function TradingChart() {
 
         if (bars.length > 0) {
           candlestickSeries.setData(bars);
-          allBarsRef.current = bars;
+          setHistoricalBars(bars);
           earliestTimeRef.current = bars[0].time as number;
           chart.timeScale().fitContent();
           console.log(`📊 Initial load: ${bars.length} bars`);
@@ -147,7 +144,7 @@ export function TradingChart() {
 
           console.log('⬅️  Panning left - fetching older data...');
 
-          const olderBars = await dataFetcherRef.current.getBars(
+          const olderBars = await dataFetcher.getBars(
             symbolConfig.symbol,
             symbolConfig.exchange,
             symbolConfig.segment,
@@ -161,15 +158,15 @@ export function TradingChart() {
             // Merge older data with existing data
             // Remove any overlap (bars with same timestamp)
             const lastOldTime = olderBars[olderBars.length - 1].time as number;
-            const filteredCurrent = allBarsRef.current.filter(
-              bar => (bar.time as number) > lastOldTime
+            const filteredCurrent = historicalBars.filter(
+              (bar: CandlestickData) => (bar.time as number) > lastOldTime
             );
 
             const combinedBars = [...olderBars, ...filteredCurrent];
 
             // Update chart with merged data
             candlestickSeries.setData(combinedBars);
-            allBarsRef.current = combinedBars;
+            setHistoricalBars(combinedBars);
             earliestTimeRef.current = olderBars[0].time as number;
 
             console.log(`✅ Extended history by ${olderBars.length} bars (total: ${combinedBars.length})`);
