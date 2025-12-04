@@ -6,14 +6,19 @@ import { TestingStrategy } from '../strategies/TestingStrategy';
 import { TestingStrategy2 } from '../strategies/TestingStrategy2';
 import { TestingStrategy3 } from '../strategies/TestingStrategy3';
 import { TestingStrategy4 } from '../strategies/TestingStrategy4';
+import { EmaLongStrategy } from '../strategies/EmaLongStrategy';
+import { SmaLongStrategy } from '../strategies/SmaLongStrategy';
 import { toast } from './Toast';
 import { API_URL } from '../config/api';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 const availableStrategies = [
   { id: 'testing', name: 'Testing', type: 'auto' },
   { id: 'testing-2', name: 'Testing-2', type: 'auto' },
   { id: 'testing-3', name: 'Testing-3', type: 'auto' },
   { id: 'testing-4', name: 'Testing-4', type: 'auto' },
+  { id: 'ema_3_15_long', name: 'EMA 3/15 Long', type: 'trend' },
+  { id: 'sma_3_15_long', name: 'SMA 3/15 Long', type: 'trend' },
   { id: '1', name: 'SMA Crossover', type: 'trend' },
   { id: '2', name: 'RSI Mean Reversion', type: 'mean-reversion' },
   { id: '3', name: 'Breakout Strategy', type: 'momentum' },
@@ -30,9 +35,12 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
   const [performanceData, setPerformanceData] = useState<StrategyPerformance[]>([]);
   const [isLive, setIsLive] = useState(false);
   const [hasResults, setHasResults] = useState(false);
-  const [activeStrategies, setActiveStrategies] = useState<Map<string, TestingStrategy | TestingStrategy2 | TestingStrategy3 | TestingStrategy4>>(new Map());
+  const [activeStrategies, setActiveStrategies] = useState<Map<string, TestingStrategy | TestingStrategy2 | TestingStrategy3 | TestingStrategy4 | EmaLongStrategy | SmaLongStrategy>>(new Map());
   const [hasAccessToken, setHasAccessToken] = useState(false);
   const [isSyncingOrders, setIsSyncingOrders] = useState(false);
+
+  // WebSocket hook for real-time market data
+  const { ltpData } = useWebSocket();
 
   // Check for access token on mount and periodically
   useEffect(() => {
@@ -302,7 +310,7 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     setIsLive(true);
 
     // Initialize strategies
-    const newActiveStrategies = new Map<string, TestingStrategy | TestingStrategy2 | TestingStrategy3 | TestingStrategy4>();
+    const newActiveStrategies = new Map<string, TestingStrategy | TestingStrategy2 | TestingStrategy3 | TestingStrategy4 | EmaLongStrategy | SmaLongStrategy>();
     const initialPerformanceData: StrategyPerformance[] = [];
 
     selectedStrategies.forEach(strategy => {
@@ -434,6 +442,68 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
         });
 
         console.log('🚀 Testing-4 strategy initialized and started');
+      } else if (strategy.id === 'ema_3_15_long') {
+        // Create and start EMA 3/15 Long strategy
+        const emaLongStrategy = new EmaLongStrategy(
+          (type, qty) => validateAndPlaceOrder('ema_3_15_long', type, qty),
+          (trade) => {
+            setPerformanceData(prevData => {
+              const strategyData = prevData.find(p => p.strategyId === 'ema_3_15_long');
+              if (strategyData) {
+                return prevData.map(p =>
+                  p.strategyId === 'ema_3_15_long'
+                    ? { ...p, trades: [trade, ...p.trades] }
+                    : p
+                );
+              }
+              return prevData;
+            });
+          }
+        );
+
+        emaLongStrategy.start();
+        newActiveStrategies.set('ema_3_15_long', emaLongStrategy);
+
+        initialPerformanceData.push({
+          strategyId: 'ema_3_15_long',
+          strategyName: 'EMA 3/15 Long',
+          strategyType: 'trend',
+          metrics: generateInitialMetrics(),
+          trades: []
+        });
+
+        console.log('🚀 EMA 3/15 Long strategy initialized and started');
+      } else if (strategy.id === 'sma_3_15_long') {
+        // Create and start SMA 3/15 Long strategy
+        const smaLongStrategy = new SmaLongStrategy(
+          (type, qty) => validateAndPlaceOrder('sma_3_15_long', type, qty),
+          (trade) => {
+            setPerformanceData(prevData => {
+              const strategyData = prevData.find(p => p.strategyId === 'sma_3_15_long');
+              if (strategyData) {
+                return prevData.map(p =>
+                  p.strategyId === 'sma_3_15_long'
+                    ? { ...p, trades: [trade, ...p.trades] }
+                    : p
+                );
+              }
+              return prevData;
+            });
+          }
+        );
+
+        smaLongStrategy.start();
+        newActiveStrategies.set('sma_3_15_long', smaLongStrategy);
+
+        initialPerformanceData.push({
+          strategyId: 'sma_3_15_long',
+          strategyName: 'SMA 3/15 Long',
+          strategyType: 'trend',
+          metrics: generateInitialMetrics(),
+          trades: []
+        });
+
+        console.log('🚀 SMA 3/15 Long strategy initialized and started');
       } else {
         // Non-Testing strategies: initialize with empty data (no mocks)
         initialPerformanceData.push({
@@ -463,6 +533,18 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     setActiveStrategies(new Map());
   };
 
+  // Feed real-time LTP data to strategies
+  useEffect(() => {
+    if (!ltpData || !isLive) return;
+
+    // Feed LTP updates to EMA and SMA long strategies
+    activeStrategies.forEach((strategy, id) => {
+      if (strategy instanceof EmaLongStrategy || strategy instanceof SmaLongStrategy) {
+        strategy.onLTPUpdate(ltpData);
+      }
+    });
+  }, [ltpData, isLive, activeStrategies]);
+
   // Real-time updates - only update metrics, no mock trades
   useEffect(() => {
     if (!isLive || selectedStrategies.length === 0) return;
@@ -479,6 +561,33 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
 
     return () => clearInterval(interval);
   }, [isLive, selectedStrategies]);
+
+  // Fetch real-time calculations from EMA/SMA strategies
+  useEffect(() => {
+    if (!isLive || activeStrategies.size === 0) return;
+
+    const interval = setInterval(() => {
+      setPerformanceData(prevData =>
+        prevData.map(strategy => {
+          // Get active strategy instance
+          const activeStrategy = activeStrategies.get(strategy.strategyId);
+
+          // Check if strategy has getCalculationHistory method (EMA/SMA strategies)
+          if (activeStrategy && 'getCalculationHistory' in activeStrategy) {
+            const calculations = (activeStrategy as any).getCalculationHistory();
+            return {
+              ...strategy,
+              calculations
+            };
+          }
+
+          return strategy;
+        })
+      );
+    }, 1000); // Update every second for real-time feel
+
+    return () => clearInterval(interval);
+  }, [isLive, activeStrategies]);
 
   const combinedMetrics = calculateCombinedMetrics(performanceData);
 
@@ -509,8 +618,8 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
                   onClick={() => !isSelected && addStrategy(strategy.id)}
                   disabled={isSelected}
                   className={`px-4 py-2 rounded-lg border transition-colors ${isSelected
-                      ? 'bg-blue-50 border-blue-300 text-blue-700 cursor-default'
-                      : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100 hover:border-gray-400'
+                    ? 'bg-blue-50 border-blue-300 text-blue-700 cursor-default'
+                    : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100 hover:border-gray-400'
                     }`}
                 >
                   {strategy.name}

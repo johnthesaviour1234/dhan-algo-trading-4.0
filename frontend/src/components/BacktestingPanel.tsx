@@ -42,6 +42,7 @@ export interface StrategyPerformance {
     overall: MetricData;
   };
   trades: Trade[];
+  calculations?: import('../types/CalculationRow').CalculationRow[];  // Real-time calculations for EMA/SMA strategies
 }
 
 const availableStrategies = [
