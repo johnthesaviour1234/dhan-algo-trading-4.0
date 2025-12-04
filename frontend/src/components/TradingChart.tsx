@@ -86,9 +86,6 @@ export function TradingChart() {
     const loadInitialData = async () => {
       setIsLoading(true);
       try {
-        // Clear cache to ensure fresh data on mount
-        dataFetcher.clearCache();
-
         const now = Math.floor(Date.now() / 1000);
         const sevenDaysAgo = now - (7 * 24 * 60 * 60);
 

@@ -16,7 +16,6 @@ export class ChartDataFetcher {
     private readonly MIN_DAYS = 7;
     private readonly SECONDS_PER_DAY = 86400;
     private readonly WEEK_SECONDS = 604800;
-    private readonly CACHE_TTL = 60 * 1000; // 1 minute for recent data
 
     /**
      * Calculate difference between two dates in days
@@ -73,10 +72,11 @@ export class ChartDataFetcher {
     }
 
     /**
-     * Generate cache key
+     * Generate cache key - Symbol-based (no time range)
+     * Matches Dhan's approach: cache per symbol, not per time range
      */
-    private getCacheKey(symbol: string, interval: string, from: number, to: number): string {
-        return `${symbol}_${interval}_${from}_${to}`;
+    private getCacheKey(symbol: string, interval: string): string {
+        return `${symbol}_${interval}`;
     }
 
     /**
@@ -127,23 +127,34 @@ export class ChartDataFetcher {
         console.log(`📊 getBars: Original range ${from} to ${to}`);
         console.log(`📊 getBars: Adjusted range ${adjusted.from} to ${adjusted.to} (min 7 days enforced)`);
 
-        // 2. Check cache with expiration logic
-        const cacheKey = this.getCacheKey(symbol, interval, adjusted.from, adjusted.to);
+        // 2. Get or create symbol-based cache
+        const cacheKey = this.getCacheKey(symbol, interval);
+        let cachedBars: CandlestickData[] = [];
+
         if (this.cache.has(cacheKey)) {
             const cached = this.cache.get(cacheKey)!;
             const age = Date.now() - cached.timestamp;
 
-            // For recent data requests (within last hour), invalidate cache if older than 1 minute
-            const isRecentRequest = to >= (Math.floor(Date.now() / 1000) - 3600);
+            // Use cached bars as starting point
+            cachedBars = cached.data;
+            console.log(`📦 Found ${cachedBars.length} bars in cache (age: ${Math.floor(age / 1000)}s)`);
 
-            if (isRecentRequest && age > this.CACHE_TTL) {
-                console.log('⚠️ Cache expired for recent data request, fetching fresh');
-                this.cache.delete(cacheKey);
-            } else {
-                console.log('✅ Returning cached data (age: ' + Math.floor(age / 1000) + 's)');
-                return cached.data;
+            // Check if we already have the requested range
+            const oldestCached = cachedBars.length > 0 ? (cachedBars[0].time as number) : Infinity;
+            const newestCached = cachedBars.length > 0 ? (cachedBars[cachedBars.length - 1].time as number) : 0;
+
+            // If cache covers the requested range, return filtered data
+            if (oldestCached <= adjusted.from && newestCached >= adjusted.to) {
+                console.log('✅ Cache covers requested range, returning filtered data');
+                return cachedBars.filter(bar => {
+                    const t = bar.time as number;
+                    return t >= adjusted.from && t <= adjusted.to;
+                });
             }
+
+            console.log('⚠️ Cache does not cover full range, fetching new data');
         }
+
 
         // 3. Apply IST offset for request times
         const startTime = this.applyISTOffset(adjusted.from);
@@ -188,15 +199,48 @@ export class ChartDataFetcher {
 
             console.log(`✅ Received ${bars.length} bars from API`);
 
-            // 7. Cache result with timestamp
-            if (bars.length > 0) {
-                this.cache.set(cacheKey, {
-                    data: bars,
-                    timestamp: Date.now()
-                });
-            }
+            // 7. Merge with cached bars + Apply 31-day retention (Dhan's approach)
+            const now = Math.floor(Date.now() / 1000);
+            const thirtyOneDaysAgo = now - (31 * 24 * 60 * 60);
 
-            return bars;
+            // Combine cached + new bars using Map for deduplication
+            const barsMap = new Map<number, CandlestickData>();
+
+            // Add existing cached bars
+            cachedBars.forEach(bar => {
+                const t = bar.time as number;
+                // Only keep bars within 31 days
+                if (t >= thirtyOneDaysAgo) {
+                    barsMap.set(t, bar);
+                }
+            });
+
+            // Add/update with new bars
+            bars.forEach(bar => {
+                const t = bar.time as number;
+                if (t >= thirtyOneDaysAgo) {
+                    barsMap.set(t, bar); // Last-Write-Wins
+                }
+            });
+
+            // Convert to sorted array
+            const allBars = Array.from(barsMap.values())
+                .sort((a, b) => (a.time as number) - (b.time as number));
+
+            console.log(`📊 Cache updated: ${allBars.length} total bars (31-day retention)`);
+            console.log(`   Range: ${new Date((allBars[0]?.time as number || 0) * 1000).toISOString()} to ${new Date((allBars[allBars.length - 1]?.time as number || 0) * 1000).toISOString()}`);
+
+            // 8. Update cache
+            this.cache.set(cacheKey, {
+                data: allBars,
+                timestamp: Date.now()
+            });
+
+            // 9. Return bars for requested range
+            return allBars.filter(bar => {
+                const t = bar.time as number;
+                return t >= adjusted.from && t <= adjusted.to;
+            });
         } catch (error) {
             console.error('❌ Error fetching bars:', error);
             return [];
