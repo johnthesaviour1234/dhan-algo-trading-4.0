@@ -820,20 +820,20 @@ priceFeedWss.on('connection', async (frontendWs) => {
           return;
         }
 
-        console.log('\n📥 ===== MESSAGE FROM DHAN =====');
-        console.log('   Data type:', data instanceof Buffer ? 'Buffer' : typeof data);
-        console.log('   Data length:', dataLength, 'bytes');
-        console.log('   Frontend WS state:', frontendWs.readyState, '(1=OPEN)');
+        // console.log('\n📥 ===== MESSAGE FROM DHAN =====');
+        // console.log('   Data type:', data instanceof Buffer ? 'Buffer' : typeof data);
+        // console.log('   Data length:', dataLength, 'bytes');
+        // console.log('   Frontend WS state:', frontendWs.readyState, '(1=OPEN)');
 
         // Check if frontend connection is still open
         if (frontendWs.readyState === 1) { // WebSocket.OPEN = 1
           // Forward the binary message as-is
           frontendWs.send(data);
-          console.log('   ✅ Binary message forwarded to frontend');
+          // console.log('   ✅ Binary message forwarded to frontend');
         } else {
           console.log('   ⚠️ Frontend not connected, message NOT forwarded');
         }
-        console.log('===== END MESSAGE =====\n');
+        // console.log('===== END MESSAGE =====\n');
       } catch (error) {
         console.error('❌ Error forwarding message to frontend:', error);
         console.error('   Error stack:', error.stack);
