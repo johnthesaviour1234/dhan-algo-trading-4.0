@@ -143,13 +143,10 @@ export class ChartDataFetcher {
             const oldestCached = cachedBars.length > 0 ? (cachedBars[0].time as number) : Infinity;
             const newestCached = cachedBars.length > 0 ? (cachedBars[cachedBars.length - 1].time as number) : 0;
 
-            // If cache covers the requested range, return filtered data
+            // If cache covers the requested range, return ALL cached bars
             if (oldestCached <= adjusted.from && newestCached >= adjusted.to) {
-                console.log('✅ Cache covers requested range, returning filtered data');
-                return cachedBars.filter(bar => {
-                    const t = bar.time as number;
-                    return t >= adjusted.from && t <= adjusted.to;
-                });
+                console.log('✅ Cache covers requested range, returning all cached bars');
+                return cachedBars; // Return ALL, not filtered
             }
 
             console.log('⚠️ Cache does not cover full range, fetching new data');
@@ -236,11 +233,10 @@ export class ChartDataFetcher {
                 timestamp: Date.now()
             });
 
-            // 9. Return bars for requested range
-            return allBars.filter(bar => {
-                const t = bar.time as number;
-                return t >= adjusted.from && t <= adjusted.to;
-            });
+            // 9. Return ALL cached bars (not just requested range)
+            // TradingChart will handle display range, we provide full dataset
+            console.log(`📤 Returning ${allBars.length} bars from cache`);
+            return allBars;
         } catch (error) {
             console.error('❌ Error fetching bars:', error);
             return [];
