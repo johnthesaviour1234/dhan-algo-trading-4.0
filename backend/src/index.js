@@ -40,30 +40,49 @@ app.post('/api/capture-headers/:type', (req, res) => {
     headersStore[type] = {};
   }
 
-  // Special handling for priceFeedWebSubscriptions - deduplicate by security ID
+  // Special handling for priceFeedWebSubscriptions - group by message type AND security ID
   if (type === 'priceFeedWebSubscriptions') {
-    // Extract security ID from the base64 message
-    // 129B subscription format: bytes 109-129 contain security ID (null-padded string)  
+    // Extract security ID and message type from the base64 message
+    // 129B subscription format:
+    // - Byte 0: Message type (23=Market Depth, 24=LTP, etc.)
+    // - Bytes 109-129: Security ID (null-padded string)
     try {
       const base64Message = headers.message;
       const binaryData = Buffer.from(base64Message, 'base64');
+
+      // Extract message type from byte 0
+      const messageType = binaryData.readUInt8(0);
 
       // Security ID is at bytes 109-129 (20 bytes, null-padded string)
       const securityIdBytes = binaryData.slice(109, 129);
       const securityId = securityIdBytes.toString('utf8').replace(/\0/g, '').trim();
 
-      // Store/replace subscription by security ID
-      const isNew = !headersStore[type][securityId];
-      headersStore[type][securityId] = headers;
+      // Create a compound key: messageType_securityId (e.g., "24_14366" for LTP subscription)
+      const subscriptionKey = `${messageType}_${securityId}`;
+
+      // Store subscription with compound key
+      const isNew = !headersStore[type][subscriptionKey];
+      headersStore[type][subscriptionKey] = headers;
 
       const totalUnique = Object.keys(headersStore[type]).length;
-      console.log(`📥 ${isNew ? 'New' : 'Updated'} subscription for security ID: ${securityId}`);
-      console.log(`   Total unique subscriptions: ${totalUnique}`);
+      const messageTypeNames = {
+        23: 'Market Depth',
+        24: 'LTP',
+        13: 'Unsubscribe',
+        25: 'Market Depth Unsubscribe'
+      };
+      const typeName = messageTypeNames[messageType] || `Type ${messageType}`;
+
+      console.log(`📥 ${isNew ? 'New' : 'Updated'} subscription: ${typeName} for security ID: ${securityId}`);
+      console.log(`   Subscription key: ${subscriptionKey}`);
+      console.log(`   Total subscriptions: ${totalUnique}`);
 
       return res.json({
         success: true,
-        message: `Subscription for ${securityId} ${isNew ? 'added' : 'updated'}`,
+        message: `${typeName} subscription for ${securityId} ${isNew ? 'added' : 'updated'}`,
+        messageType: messageType,
         securityId: securityId,
+        subscriptionKey: subscriptionKey,
         totalSubscriptions: totalUnique,
         isNew: isNew
       });
@@ -703,7 +722,7 @@ priceFeedWss.on('connection', async (frontendWs) => {
 
     console.log('📋 Price feed data:', priceFeedData ? 'Available' : 'Missing');
     console.log('📋 Handshake data:', handshakeData ? 'Available' : 'Missing');
-    console.log('📋 Subscriptions:', subscriptions ? `${Object.keys(subscriptions).length} unique securities` : 'Missing');
+    console.log('📋 Subscriptions:', subscriptions ? `${Object.keys(subscriptions).length} total (all types+securities)` : 'Missing');
 
     if (!priceFeedData || !priceFeedData.fullUrl) {
       const errorMsg = {
