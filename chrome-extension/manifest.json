@@ -9,33 +9,22 @@
     "storage"
   ],
   "host_permissions": [
+    "https://*.dhan.co/*",
+    "http://localhost:3001/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
     {
-      "manifest_version": 3,
-      "name": "Dhan Header Capturer",
-      "version": "1.0",
-      "description": "Captures authentication headers from Dhan and sends them to the local backend.",
-      "permissions": [
-        "webRequest",
-        "declarativeNetRequest",
-        "storage"
+      "matches": [
+        "https://web.dhan.co/Charts*"
       ],
-      "host_permissions": [
-        "https://*.dhan.co/*",
-        "http://localhost:3001/*"
+      "js": [
+        "content.js"
       ],
-      "background": {
-        "service_worker": "background.js"
-      },
-      "content_scripts": [
-        {
-          "matches": [
-            "https://web.dhan.co/Charts*"
-          ],
-          "js": [
-            "content.js"
-          ],
-          "run_at": "document_start",
-          "world": "MAIN"
-        }
-      ]
+      "run_at": "document_start",
+      "world": "MAIN"
     }
+  ]
+}
