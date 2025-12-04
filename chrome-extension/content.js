@@ -1,10 +1,9 @@
 // Content script running in MAIN world (page context)
 // With world: "MAIN", this runs directly in the page's JavaScript context
 //
-// RECOMMENDED URLS TO VISIT FOR PRICE FEED:
+// RECOMMENDED URL FOR PRICE FEED CAPTURE:
 // https://web.dhan.co/Charts?exch=NSE&seg=E&secid=14366
-// https://web.dhan.co/index/company (for complete data subscriptions)
-// (Charts creates ONE WebSocket, company page may have more complete subscriptions)
+// (Visit this specific Charts page for Idea Vodafone to capture WebSocket subscriptions)
 
 console.log('🔧 Dhan WebSocket Interceptor: Script loaded in MAIN world');
 

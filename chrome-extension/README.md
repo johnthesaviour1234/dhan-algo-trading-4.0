@@ -13,21 +13,21 @@ Captures WebSocket headers and handshake messages from Dhan and forwards them to
 
 ## Usage
 
-### For Price Feed WebSocket (Recommended)
-**Visit this specific URL for the cleanest capture:**
+### For Price Feed WebSocket
+**Visit this specific URL:**
 ```
 https://web.dhan.co/Charts?exch=NSE&seg=E&secid=14366
 ```
 
 **Why this URL?**
-- Creates only ONE WebSocket connection for price-feed
-- Avoids duplicate subscriptions from multiple connections
-- Cleaner data capture
+- Captures all necessary WebSocket subscriptions for Idea Vodafone
+- Backend now properly stores multiple subscription types per security (LTP, Market Depth, Quote, etc.)
+- Creates a clean, single WebSocket connection
 
 **What it captures:**
 - WebSocket connection headers
 - 703B handshake message
-- 129B subscription messages (unique by security ID)
+- All 129B subscription messages (grouped by message type + security ID)
 
 ### For Order Feed WebSocket
 Visit any orders page:
@@ -68,7 +68,7 @@ POST http://localhost:3001/api/capture-headers/:type
 Types:
 - `priceFeedWeb` - Price feed connection headers
 - `priceFeedWebHandshake` - 703B handshake
-- `priceFeedWebSubscriptions` - 129B subscriptions (deduplicated by security ID)
+- `priceFeedWebSubscriptions` - 129B subscriptions (stored by messageType_securityId compound key)
 - `orderFeed` - Order feed connection headers
 - `orderFeedHandshake` - 703B order handshake
 
