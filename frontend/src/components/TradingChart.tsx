@@ -86,8 +86,13 @@ export function TradingChart() {
     const loadInitialData = async () => {
       setIsLoading(true);
       try {
+        // Clear cache to ensure fresh data on mount
+        dataFetcher.clearCache();
+
         const now = Math.floor(Date.now() / 1000);
         const sevenDaysAgo = now - (7 * 24 * 60 * 60);
+
+        console.log(`📊 Fetching initial data from ${new Date(sevenDaysAgo * 1000).toISOString()} to ${new Date(now * 1000).toISOString()}`);
 
         const bars = await dataFetcher.getBars(
           symbolConfig.symbol,
@@ -100,11 +105,14 @@ export function TradingChart() {
         );
 
         if (bars.length > 0) {
+          console.log(`📊 Loaded ${bars.length} bars`);
+          console.log(`   Oldest: ${new Date((bars[0].time as number) * 1000).toISOString()}`);
+          console.log(`   Latest: ${new Date((bars[bars.length - 1].time as number) * 1000).toISOString()}`);
+
           candlestickSeries.setData(bars);
           setHistoricalBars(bars);
           earliestTimeRef.current = bars[0].time as number;
           chart.timeScale().fitContent();
-          console.log(`📊 Initial load: ${bars.length} bars`);
         }
       } catch (error) {
         console.error('Failed to load initial data:', error);
@@ -155,21 +163,38 @@ export function TradingChart() {
           );
 
           if (olderBars.length > 0) {
-            // Merge older data with existing data
-            // Remove any overlap (bars with same timestamp)
-            const lastOldTime = olderBars[olderBars.length - 1].time as number;
-            const filteredCurrent = historicalBars.filter(
-              (bar: CandlestickData) => (bar.time as number) > lastOldTime
-            );
+            console.log(`📦 Fetched ${olderBars.length} older bars`);
+            console.log(`   Oldest fetched: ${new Date((olderBars[0].time as number) * 1000).toISOString()}`);
+            console.log(`   Newest fetched: ${new Date((olderBars[olderBars.length - 1].time as number) * 1000).toISOString()}`);
+            console.log(`   Current bars in state: ${historicalBars.length}`);
 
-            const combinedBars = [...olderBars, ...filteredCurrent];
+            // Use Map for deduplication - accumulate ALL bars without filtering
+            const barsMap = new Map<number, CandlestickData>();
+
+            // Add all existing bars from state
+            historicalBars.forEach(bar => {
+              barsMap.set(bar.time as number, bar);
+            });
+
+            // Add newly fetched older bars (won't overwrite existing bars)
+            olderBars.forEach(bar => {
+              const time = bar.time as number;
+              if (!barsMap.has(time)) {
+                barsMap.set(time, bar);
+              }
+            });
+
+            // Convert Map to array and sort chronologically
+            const combinedBars = Array.from(barsMap.values())
+              .sort((a, b) => (a.time as number) - (b.time as number));
+
+            console.log(`✅ Merged data: ${combinedBars.length} total bars`);
+            console.log(`   Full range: ${new Date((combinedBars[0].time as number) * 1000).toISOString()} to ${new Date((combinedBars[combinedBars.length - 1].time as number) * 1000).toISOString()}`);
 
             // Update chart with merged data
             candlestickSeries.setData(combinedBars);
             setHistoricalBars(combinedBars);
-            earliestTimeRef.current = olderBars[0].time as number;
-
-            console.log(`✅ Extended history by ${olderBars.length} bars (total: ${combinedBars.length})`);
+            earliestTimeRef.current = combinedBars[0].time as number;
           } else {
             console.log('📭 No older data available');
           }

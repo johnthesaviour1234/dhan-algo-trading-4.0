@@ -5,12 +5,18 @@ import { API_URL } from '../config/api';
  * Chart Data Fetcher - Based on reverse-engineered Dhan implementation
  * Implements the getBars mechanism from bundle2.1.37.js Class Dn
  */
+interface CacheEntry {
+    data: CandlestickData[];
+    timestamp: number;
+}
+
 export class ChartDataFetcher {
-    private cache: Map<string, CandlestickData[]> = new Map();
+    private cache: Map<string, CacheEntry> = new Map();
     private readonly IST_OFFSET_MINUTES = 330; // +5:30 hours
     private readonly MIN_DAYS = 7;
     private readonly SECONDS_PER_DAY = 86400;
     private readonly WEEK_SECONDS = 604800;
+    private readonly CACHE_TTL = 60 * 1000; // 1 minute for recent data
 
     /**
      * Calculate difference between two dates in days
@@ -121,11 +127,22 @@ export class ChartDataFetcher {
         console.log(`📊 getBars: Original range ${from} to ${to}`);
         console.log(`📊 getBars: Adjusted range ${adjusted.from} to ${adjusted.to} (min 7 days enforced)`);
 
-        // 2. Check cache
+        // 2. Check cache with expiration logic
         const cacheKey = this.getCacheKey(symbol, interval, adjusted.from, adjusted.to);
         if (this.cache.has(cacheKey)) {
-            console.log('✅ Returning cached data');
-            return this.cache.get(cacheKey)!;
+            const cached = this.cache.get(cacheKey)!;
+            const age = Date.now() - cached.timestamp;
+
+            // For recent data requests (within last hour), invalidate cache if older than 1 minute
+            const isRecentRequest = to >= (Math.floor(Date.now() / 1000) - 3600);
+
+            if (isRecentRequest && age > this.CACHE_TTL) {
+                console.log('⚠️ Cache expired for recent data request, fetching fresh');
+                this.cache.delete(cacheKey);
+            } else {
+                console.log('✅ Returning cached data (age: ' + Math.floor(age / 1000) + 's)');
+                return cached.data;
+            }
         }
 
         // 3. Apply IST offset for request times
@@ -171,9 +188,12 @@ export class ChartDataFetcher {
 
             console.log(`✅ Received ${bars.length} bars from API`);
 
-            // 7. Cache result
+            // 7. Cache result with timestamp
             if (bars.length > 0) {
-                this.cache.set(cacheKey, bars);
+                this.cache.set(cacheKey, {
+                    data: bars,
+                    timestamp: Date.now()
+                });
             }
 
             return bars;
