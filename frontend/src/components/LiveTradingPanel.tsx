@@ -580,17 +580,7 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     setActiveStrategies(new Map());
   };
 
-  // Feed real-time LTP data to strategies
-  useEffect(() => {
-    if (!ltpData || !isLive) return;
 
-    // Feed LTP updates to EMA and SMA long strategies
-    activeStrategies.forEach((strategy, id) => {
-      if (strategy instanceof EmaLongStrategy || strategy instanceof SmaLongStrategy) {
-        strategy.onLTPUpdate(ltpData);
-      }
-    });
-  }, [ltpData, isLive, activeStrategies]);
 
   // Real-time updates - only update metrics, no mock trades
   useEffect(() => {
