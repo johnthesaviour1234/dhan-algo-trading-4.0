@@ -13,4 +13,7 @@ export interface StrategyInterface {
     updateWithOHLCData(candles: OHLCCandle[]): void;
     isActive(): boolean;
     getCalculationHistory(): any[];
+
+    // Define how many historical candles the strategy needs
+    readonly lookbackCandles: number;
 }

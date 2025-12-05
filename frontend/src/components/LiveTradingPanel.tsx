@@ -75,6 +75,15 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     return historical;
   }, [historicalBars, liveCandle]);
 
+  // Helper to filter OHLC data by strategy lookback period
+  const getFilteredOHLCData = (fullData: OHLCCandle[], lookbackCandles: number): OHLCCandle[] => {
+    if (fullData.length <= lookbackCandles) {
+      return fullData; // Return all if less than lookback
+    }
+    // Return last N candles
+    return fullData.slice(-lookbackCandles);
+  };
+
   // Check for access token on mount and periodically
   useEffect(() => {
     const checkToken = async () => {
@@ -494,7 +503,9 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
           }
         );
 
-        emaLongStrategy.start(mergedOHLCData);
+        const filteredData = getFilteredOHLCData(mergedOHLCData, emaLongStrategy.lookbackCandles);
+        emaLongStrategy.start(filteredData);
+        console.log(`📊 [EMA 3/15 Long] Filtered data: ${filteredData.length}/${mergedOHLCData.length} candles`);
         newActiveStrategies.set('ema_3_15_long', emaLongStrategy);
 
         initialPerformanceData.push({
@@ -525,7 +536,9 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
           }
         );
 
-        smaLongStrategy.start(mergedOHLCData);
+        const filteredData = getFilteredOHLCData(mergedOHLCData, smaLongStrategy.lookbackCandles);
+        smaLongStrategy.start(filteredData);
+        console.log(`📊 [SMA 3/15 Long] Filtered data: ${filteredData.length}/${mergedOHLCData.length} candles`);
         newActiveStrategies.set('sma_3_15_long', smaLongStrategy);
 
         initialPerformanceData.push({

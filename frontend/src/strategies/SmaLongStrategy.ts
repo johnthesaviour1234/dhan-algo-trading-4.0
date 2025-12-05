@@ -39,6 +39,10 @@ export class SmaLongStrategy {
     // Calculation history for monitoring
     private calculationHistory: CalculationRow[] = [];
 
+    // Lookback period: 500 candles (~8.3 hours of 1-min data)
+    // Enough for stable SMA calculation without performance issues
+    public readonly lookbackCandles = 500;
+
     // Symbol configuration
     private readonly symbolConfig = {
         symbol: 'IDEA',
