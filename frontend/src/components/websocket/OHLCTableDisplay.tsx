@@ -15,7 +15,7 @@ export function OHLCTableDisplay({ historicalData, liveCandle }: OHLCTableDispla
             high: bar.high,
             low: bar.low,
             close: bar.close,
-            volume: 0 // Historical data doesn't have volume
+            volume: bar.volume || 0 // Preserve volume if exists, fallback to 0
         }));
 
         // If we have a live candle, check if it's newer than the last historical candle
@@ -169,8 +169,8 @@ export function OHLCTableDisplay({ historicalData, liveCandle }: OHLCTableDispla
                                         </td>
                                         <td className="px-4 py-2 text-right whitespace-nowrap">
                                             <span className={`font-medium ${candle.close >= candle.open
-                                                    ? 'text-green-600'
-                                                    : 'text-red-600'
+                                                ? 'text-green-600'
+                                                : 'text-red-600'
                                                 }`}>
                                                 {formatPrice(candle.close)}
                                             </span>

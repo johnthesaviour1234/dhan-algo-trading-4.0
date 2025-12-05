@@ -99,6 +99,7 @@ export class ChartDataFetcher {
                 high: parseFloat(data.h[i]),
                 low: parseFloat(data.l[i]),
                 close: parseFloat(data.c[i]),
+                volume: data.v ? parseFloat(data.v[i]) : undefined, // Include volume if available
             });
         }
 

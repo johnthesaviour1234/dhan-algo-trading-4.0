@@ -166,7 +166,8 @@ export function WebSocketDataPanel() {
           open: liveCandle.open,
           high: liveCandle.high,
           low: liveCandle.low,
-          close: liveCandle.close
+          close: liveCandle.close,
+          volume: liveCandle.volume // Include volume!
         };
 
         setHistoricalBars(prev => {
