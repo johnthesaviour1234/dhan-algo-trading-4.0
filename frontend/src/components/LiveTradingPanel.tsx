@@ -84,6 +84,9 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     return fullData.slice(-lookbackCandles);
   };
 
+  // Track last candle time to trigger strategies only on new candles (not every LTP tick)
+  const prevCandleTimeRef = useRef<number | null>(null);
+
   // Check for access token on mount and periodically
   useEffect(() => {
     const checkToken = async () => {
@@ -567,9 +570,18 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     setHasResults(true);
   };
 
-  // Update strategies with OHLC data changes (real-time updates)
+  // Update strategies ONLY when new candle is added (not on every LTP tick)
   useEffect(() => {
     if (mergedOHLCData.length === 0 || activeStrategies.size === 0) return;
+
+    const latestCandle = mergedOHLCData[mergedOHLCData.length - 1];
+
+    // Only trigger if candle TIME changed (new minute started)
+    if (prevCandleTimeRef.current === latestCandle.time) {
+      return; // Same candle being updated, skip strategy recalculation
+    }
+
+    console.log(`🕐 New candle time detected: ${new Date(latestCandle.time * 1000).toISOString()}`);
 
     // Update EMA and SMA strategies with filtered OHLC data
     activeStrategies.forEach((strategy, id) => {
@@ -583,6 +595,8 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
         }
       }
     });
+
+    prevCandleTimeRef.current = latestCandle.time;
   }, [mergedOHLCData, activeStrategies]);
 
   const stopLiveTrading = () => {

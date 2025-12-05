@@ -39,9 +39,9 @@ export function CalculationsTable({ calculations, strategyType }: CalculationsTa
                                     </td>
                                 </tr>
                             ) : (
-                                sortedCalculations.map((calc) => (
+                                sortedCalculations.map((calc, index) => (
                                     <tr
-                                        key={calc.timestamp}
+                                        key={`${calc.timestamp}-${index}`}
                                         className={`border-b border-gray-100 hover:bg-gray-50 ${calc.signal !== 'NONE' ? 'bg-yellow-50' : ''
                                             }`}
                                     >
