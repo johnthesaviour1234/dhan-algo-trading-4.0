@@ -1,9 +1,7 @@
 import { toast } from '../components/Toast';
-import { CandleAggregator, Candle } from '../utils/CandleAggregator';
 import { IndicatorCalculator } from '../utils/IndicatorCalculator';
-import { ChartDataFetcher } from '../lib/ChartDataFetcher';
-import type { LTPData } from '../components/WebSocketDataPanel';
 import type { CalculationRow } from '../types/CalculationRow';
+import type { OHLCCandle } from '../types/Strategy';
 
 interface Trade {
     id: string;
@@ -29,9 +27,7 @@ export class EmaLongStrategy {
     private placeOrderFn: (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number; orderId?: string; correlationId?: string }>;
     private tradeCount = 0;
 
-    // Real-time data infrastructure
-    private candleAggregator: CandleAggregator;
-    private dataFetcher: ChartDataFetcher;
+    // OHLC candle history for indicator calculation
     private closePrices: number[] = [];
 
     // EMA tracking
@@ -58,117 +54,62 @@ export class EmaLongStrategy {
     ) {
         this.placeOrderFn = placeOrderFn;
         this.onTradeCallback = onTradeCallback;
-        this.candleAggregator = new CandleAggregator();
-        this.dataFetcher = new ChartDataFetcher();
     }
 
-    async start() {
+    async start(initialOHLCData: OHLCCandle[] = []) {
         console.log('🚀 [EMA 3/15 Long] Strategy started');
         this.isRunning = true;
 
-        // 1. Load historical data for indicator warmup
-        await this.loadHistoricalData();
-
-        // 2. Subscribe to candle aggregator for real-time updates
-        this.candleAggregator.subscribe(this.onNewCandle.bind(this));
-
-        toast.info('EMA 3/15 Long strategy started - waiting for real-time data');
-    }
-
-    /**
-     * Load historical 1-min candles and calculate initial EMAs
-     */
-    private async loadHistoricalData() {
-        try {
-            const now = Math.floor(Date.now() / 1000);
-            const oneDayAgo = now - (24 * 60 * 60); // Fetch 1 day of data
-
-            console.log('📥 [EMA 3/15 Long] Fetching historical data...');
-
-            const bars = await this.dataFetcher.getBars(
-                this.symbolConfig.symbol,
-                this.symbolConfig.exchange,
-                this.symbolConfig.segment,
-                this.symbolConfig.secId,
-                oneDayAgo,
-                now,
-                this.symbolConfig.interval
-            );
-
-            if (bars.length > 0) {
-                // Extract close prices
-                this.closePrices = bars.map(bar => bar.close);
-
-                // Calculate initial EMAs
-                this.ema3 = IndicatorCalculator.calculateEMA(this.closePrices, 3);
-                this.ema15 = IndicatorCalculator.calculateEMA(this.closePrices, 15);
-
-                console.log(`✅ [EMA 3/15 Long] Loaded ${bars.length} historical candles`);
-                console.log(`   Initial EMA(3): ${this.ema3?.toFixed(4)}`);
-                console.log(`   Initial EMA(15): ${this.ema15?.toFixed(4)}`);
-
-                toast.success(`EMA 3/15 Long: Loaded ${bars.length} historical candles`);
-            } else {
-                console.warn('⚠️ [EMA 3/15 Long] No historical data available');
-                toast.warning('EMA 3/15 Long: No historical data - will start from first real-time candle');
-            }
-        } catch (error) {
-            console.error('❌ [EMA 3/15 Long] Error loading historical data:', error);
-            toast.error('EMA 3/15 Long: Failed to load historical data');
+        // Initialize with historical OHLC data
+        if (initialOHLCData.length > 0) {
+            this.updateWithOHLCData(initialOHLCData, false); // Don't check signals on init
+            console.log(`✅ [EMA 3/15 Long] Initialized with ${initialOHLCData.length} historical candles`);
+            console.log(`   Initial EMA(3): ${this.ema3?.toFixed(4)}`);
+            console.log(`   Initial EMA(15): ${this.ema15?.toFixed(4)}`);
+            toast.success(`EMA 3/15 Long: Loaded ${initialOHLCData.length} candles`);
+        } else {
+            console.warn('⚠️ [EMA 3/15 Long] No initial data - waiting for OHLC updates');
+            toast.warning('EMA 3/15 Long: Waiting for OHLC data');
         }
     }
 
     /**
-     * Process incoming LTP update (called from external source)
+     * Update strategy with new OHLC data from ChartDataContext
+     * Called whenever historical or live candle data changes
      */
-    onLTPUpdate(ltpData: LTPData) {
-        if (!this.isRunning) return;
+    updateWithOHLCData(ohlcCandles: OHLCCandle[], checkSignals: boolean = true) {
+        if (!this.isRunning || ohlcCandles.length === 0) return;
 
-        // Feed to candle aggregator
-        this.candleAggregator.onTick(
-            ltpData.ltp,
-            ltpData.volume || 0,
-            new Date()
-        );
-    }
-
-    /**
-     * Called when a new 1-min candle completes
-     */
-    private onNewCandle(candle: Candle) {
-        if (!this.isRunning) return;
-
-        console.log(`📊 [EMA 3/15 Long] New candle: ${new Date(candle.time * 1000).toISOString()}, Close: ${candle.close}`);
-
-        // Add to price history
-        this.closePrices.push(candle.close);
-
-        // Keep only last 100 candles to avoid memory bloat
-        if (this.closePrices.length > 100) {
-            this.closePrices = this.closePrices.slice(-100);
-        }
+        // Extract close prices
+        this.closePrices = ohlcCandles.map(c => c.close);
 
         // Store previous EMAs for crossover detection
         this.previousEma3 = this.ema3;
         this.previousEma15 = this.ema15;
 
-        // Calculate new EMAs (using previous EMA for efficiency)
-        this.ema3 = IndicatorCalculator.calculateEMA(this.closePrices, 3, this.previousEma3 ?? undefined);
-        this.ema15 = IndicatorCalculator.calculateEMA(this.closePrices, 15, this.previousEma15 ?? undefined);
+        // Calculate new EMAs (using all available data)
+        this.ema3 = IndicatorCalculator.calculateEMA(this.closePrices, 3);
+        this.ema15 = IndicatorCalculator.calculateEMA(this.closePrices, 15);
 
+        const latestCandle = ohlcCandles[ohlcCandles.length - 1];
+        console.log(`📊 [EMA 3/15 Long] OHLC update: ${ohlcCandles.length} candles, Latest: ${new Date(latestCandle.time * 1000).toISOString()}`);
         console.log(`   EMA(3): ${this.ema3?.toFixed(4)}, EMA(15): ${this.ema15?.toFixed(4)}`);
 
-        // Record calculation for monitoring
-        this.recordCalculation(candle);
+        // Record calculation
+        this.recordCalculation(latestCandle);
 
-        // Check for crossover and generate signals
-        this.checkForSignals(candle);
+        // Check for signals if requested and EMAs are ready
+        if (checkSignals && this.ema3 !== null && this.ema15 !== null) {
+            this.checkForSignals(latestCandle);
+        }
     }
+
+
 
     /**
      * Record calculation row for real-time monitoring
      */
-    private recordCalculation(candle: Candle) {
+    private recordCalculation(candle: OHLCCandle) {
         if (this.ema3 === null || this.ema15 === null) return;
 
         const fastAboveSlow = this.ema3 > this.ema15;
@@ -211,7 +152,7 @@ export class EmaLongStrategy {
     /**
      * Check for buy/sell signals based on EMA crossover
      */
-    private checkForSignals(candle: Candle) {
+    private checkForSignals(candle: OHLCCandle) {
         if (this.ema3 === null || this.ema15 === null) {
             console.log('   ⏳ Waiting for EMAs to initialize');
             return;
@@ -344,10 +285,6 @@ export class EmaLongStrategy {
     stop() {
         console.log('🛑 [EMA 3/15 Long] Strategy stopped');
         this.isRunning = false;
-
-        // Unsubscribe from candle aggregator
-        this.candleAggregator.unsubscribe(this.onNewCandle.bind(this));
-
         this.currentPosition = null;
         toast.info('EMA 3/15 Long strategy stopped');
     }

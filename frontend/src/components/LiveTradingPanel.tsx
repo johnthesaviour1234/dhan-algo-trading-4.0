@@ -11,6 +11,9 @@ import { SmaLongStrategy } from '../strategies/SmaLongStrategy';
 import { toast } from './Toast';
 import { API_URL } from '../config/api';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { useChartData } from '../contexts/ChartDataContext';
+import { useMemo } from 'react';
+import type { OHLCCandle } from '../types/Strategy';
 
 const availableStrategies = [
   { id: 'testing', name: 'Testing', type: 'auto' },
@@ -41,6 +44,36 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
 
   // WebSocket hook for real-time market data
   const { ltpData } = useWebSocket();
+
+  // Get OHLC data from ChartDataContext
+  const { historicalBars, liveCandle } = useChartData();
+
+  // Create merged OHLC data (historical + live)
+  const mergedOHLCData: OHLCCandle[] = useMemo(() => {
+    const historical: OHLCCandle[] = historicalBars.map(bar => ({
+      time: bar.time as number,
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+      volume: bar.volume || 0
+    }));
+
+    // Add live candle if newer or update if same time
+    if (liveCandle) {
+      const lastHistTime = historical.length > 0 ? historical[historical.length - 1].time : 0;
+
+      if (liveCandle.time > lastHistTime) {
+        return [...historical, liveCandle];
+      } else if (liveCandle.time === lastHistTime) {
+        const updated = [...historical];
+        updated[updated.length - 1] = liveCandle;
+        return updated;
+      }
+    }
+
+    return historical;
+  }, [historicalBars, liveCandle]);
 
   // Check for access token on mount and periodically
   useEffect(() => {
@@ -461,7 +494,7 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
           }
         );
 
-        emaLongStrategy.start();
+        emaLongStrategy.start(mergedOHLCData);
         newActiveStrategies.set('ema_3_15_long', emaLongStrategy);
 
         initialPerformanceData.push({
@@ -492,7 +525,7 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
           }
         );
 
-        smaLongStrategy.start();
+        smaLongStrategy.start(mergedOHLCData);
         newActiveStrategies.set('sma_3_15_long', smaLongStrategy);
 
         initialPerformanceData.push({
@@ -520,6 +553,20 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     setPerformanceData(initialPerformanceData);
     setHasResults(true);
   };
+
+  // Update strategies with OHLC data changes (real-time updates)
+  useEffect(() => {
+    if (mergedOHLCData.length === 0 || activeStrategies.size === 0) return;
+
+    // Update EMA and SMA strategies with latest OHLC data
+    activeStrategies.forEach((strategy, id) => {
+      if (id === 'ema_3_15_long' || id === 'sma_3_15_long') {
+        if ('updateWithOHLCData' in strategy) {
+          strategy.updateWithOHLCData(mergedOHLCData);
+        }
+      }
+    });
+  }, [mergedOHLCData, activeStrategies]);
 
   const stopLiveTrading = () => {
     setIsLive(false);
