@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Play, Pause, TrendingUp, TrendingDown, Activity, Target, BarChart3, DollarSign } from 'lucide-react';
 import { StrategyCard } from './StrategyCard';
 import type { StrategyPerformance, MetricData, Trade } from './BacktestingPanel';
