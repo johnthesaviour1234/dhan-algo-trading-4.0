@@ -7,6 +7,24 @@
 
 console.log('🔧 Dhan WebSocket Interceptor: Script loaded in MAIN world');
 
+// Helper function to check if we're on the Charts page
+function isOnChartsPage() {
+    const currentPath = window.location.pathname;
+    const currentSearch = window.location.search;
+
+    // Check if on Charts page
+    const isCharts = currentPath.includes('/Charts');
+
+    console.log('📍 Current page check:', {
+        href: window.location.href,
+        pathname: currentPath,
+        search: currentSearch,
+        isCharts: isCharts
+    });
+
+    return isCharts;
+}
+
 // Store the original WebSocket constructor
 const OriginalWebSocket = window.WebSocket;
 
@@ -62,10 +80,11 @@ window.WebSocket = function (url, protocols) {
             console.error('❌ Error capturing WebSocket:', error);
         }
     }
-    // Handle WebSocket price feed connection (NEW)
-    else if (url.includes('price-feed-web.dhan.co')) {
-        console.log('✨ PRICE FEED WEB WEBSOCKET DETECTED!');
+    // Handle WebSocket price feed connection (ONLY on Charts page)
+    else if (url.includes('price-feed-web.dhan.co') && isOnChartsPage()) {
+        console.log('✨ PRICE FEED WEB WEBSOCKET DETECTED (on Charts page)!');
         console.log('📍 URL:', url);
+        console.log('📍 Page:', window.location.href);
 
         try {
             // Parse the URL
@@ -107,7 +126,14 @@ window.WebSocket = function (url, protocols) {
         }
     }
     else {
-        console.log('ℹ️ Other WebSocket:', url.substring(0, 50) + '...');
+        // Log if price feed detected but not on Charts page
+        if (url.includes('price-feed-web.dhan.co')) {
+            console.log('⚠️ Price feed WebSocket detected but NOT on Charts page, ignoring');
+            console.log('   Current page:', window.location.href);
+            console.log('   WebSocket URL:', url);
+        } else {
+            console.log('ℹ️ Other WebSocket:', url.substring(0, 50) + '...');
+        }
     }
 
     // Create the actual WebSocket connection using the original constructor
@@ -190,8 +216,8 @@ window.WebSocket = function (url, protocols) {
         });
     }
 
-    // Intercept messages for price-feed-web (NEW)
-    if (url.includes('price-feed-web.dhan.co')) {
+    // Intercept messages for price-feed-web (ONLY on Charts page)
+    if (url.includes('price-feed-web.dhan.co') && isOnChartsPage()) {
         const originalSend = ws.send.bind(ws);
         let messageCount = 0;
 
