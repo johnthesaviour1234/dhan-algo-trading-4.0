@@ -9,9 +9,10 @@ import { PrevCloseOIDisplay } from './websocket/PrevCloseOIDisplay';
 import { CircuitLimitsDisplay } from './websocket/CircuitLimitsDisplay';
 import { WeekHighLowDisplay } from './websocket/WeekHighLowDisplay';
 import { OHLCTableDisplay } from './websocket/OHLCTableDisplay';
-import { RealtimeAggregator, OHLCCandle } from '../utils/RealtimeAggregator';
+import { RealtimeAggregator } from '../utils/RealtimeAggregator';
 import { useChartData } from '../contexts/ChartDataContext';
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect } from 'react';
+import { CandlestickData, Time } from 'lightweight-charts';
 
 // Interface definitions based on Dhan WebSocket protocol
 export interface LTPData {
@@ -120,26 +121,82 @@ export function WebSocketDataPanel() {
     error
   } = useWebSocket();
 
-  // Get historical chart data from context
-  const { historicalBars } = useChartData();
+  // Get historical chart data and live candle from context
+  const { historicalBars, setHistoricalBars, liveCandle, setLiveCandle } = useChartData();
 
   // Initialize aggregator for real-time 1-min candles
   const aggregatorRef = useRef(new RealtimeAggregator());
-  const [liveCandle, setLiveCandle] = useState<OHLCCandle | null>(null);
+
+  // Track previous candle time to detect minute boundary changes
+  const prevCandleTimeRef = useRef<number | null>(null);
 
   // Process LTP updates through aggregator
   useEffect(() => {
     if (ltpData) {
+      console.log('🔄 Processing LTP update for OHLC aggregation:', {
+        ltp: ltpData.ltp,
+        volume: ltpData.volume,
+        timestamp: ltpData.timestamp,
+        timestampYear: new Date(ltpData.timestamp).getFullYear() // Should be 2025 now!
+      });
+
       const symbol = ltpData.securityId; // Use security ID as symbol
+
+      // Now using corrected timestamp from Dhan (1980 epoch conversion applied)
       const candle = aggregatorRef.current.processTick(
         symbol,
         ltpData.ltp,
         ltpData.volume,
-        ltpData.timestamp
+        ltpData.timestamp // Use message timestamp (now corrected!)
       );
+
+      console.log('📊 Generated live candle:', {
+        ...candle,
+        timeISO: new Date(candle.time * 1000).toISOString()
+      });
+
+      // DETECT MINUTE BOUNDARY CHANGE
+      if (prevCandleTimeRef.current !== null &&
+        candle.time !== prevCandleTimeRef.current &&
+        liveCandle) {
+
+        // Save the COMPLETED candle to historical data
+        const completedCandle: CandlestickData = {
+          time: liveCandle.time as Time,
+          open: liveCandle.open,
+          high: liveCandle.high,
+          low: liveCandle.low,
+          close: liveCandle.close
+        };
+
+        setHistoricalBars(prev => {
+          // Check for duplicates
+          const exists = prev.some(bar => bar.time === completedCandle.time);
+          if (exists) {
+            console.log('⚠️ Candle already exists, skipping');
+            return prev;
+          }
+
+          // Add and sort chronologically
+          const updated = [...prev, completedCandle].sort((a, b) => (a.time as number) - (b.time as number));
+
+          console.log('💾 Saved completed candle:', {
+            time: new Date((completedCandle.time as number) * 1000).toISOString(),
+            volume: liveCandle.volume,
+            total: updated.length
+          });
+
+          return updated;
+        });
+      }
+
+      // Update tracking ref
+      prevCandleTimeRef.current = candle.time;
+
+      // Update context (will trigger chart update)
       setLiveCandle(candle);
     }
-  }, [ltpData]);
+  }, [ltpData, setLiveCandle, liveCandle, setHistoricalBars]);
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">

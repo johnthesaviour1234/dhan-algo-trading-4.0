@@ -21,12 +21,33 @@ export interface DecodedMessage {
     data: any;
 }
 
+/**
+ * Dhan uses a custom epoch starting from 1980-01-01 00:00:00 UTC
+ * (which is 1980-01-01 05:30:00 IST)
+ * Reference: dhanfeeds/udf/dist/bundle2.1.37.js lines 14235-14243
+ */
+const DHAN_EPOCH_MS = new Date('1980-01-01T00:00:00Z').getTime(); // 315532800000
+
+/**
+ * Convert Dhan's timestamp (seconds since 1980 epoch) to ISO string
+ * @param rawTimestamp - Uint32 timestamp from bytes 29-33 of binary message
+ * @returns ISO 8601 date string
+ */
+function decodeDhanTimestamp(rawTimestamp: number): string {
+    // Raw timestamp is seconds since 1980-01-01 00:00:00 UTC
+    const timestampMs = rawTimestamp * 1000;
+    const actualMs = DHAN_EPOCH_MS + timestampMs;
+    return new Date(actualMs).toISOString();
+}
+
 export class WebSocketDecoder {
     /**
      * Parse WebSocket message buffer
      * Can contain multiple packets
+     * @param data ArrayBuffer containing the binary message
+     * @param filterSecurityId Optional security ID to filter logs (e.g., 14366 for Vodafone Idea)
      */
-    parseMessage(data: ArrayBuffer): DecodedMessage[] {
+    parseMessage(data: ArrayBuffer, filterSecurityId?: number): DecodedMessage[] {
         const messages: DecodedMessage[] = [];
         let offset = 0;
         const totalLength = data.byteLength;
@@ -52,17 +73,20 @@ export class WebSocketDecoder {
 
                 const packet = data.slice(offset, offset + packetLength);
 
-                // 🔍 DEBUG: Log raw packet hex for analysis
-                const hexDump = Array.from(new Uint8Array(packet))
-                    .map(b => b.toString(16).padStart(2, '0'))
-                    .join(' ');
-                console.log(`🔍 DEBUG Packet | Type: ${messageType} | Exchange: ${exchange} | SecID: ${securityId} | Len: ${packetLength}`);
-                console.log(`   Raw Hex: ${hexDump}`);
+                // 🔍 DEBUG: Log raw packet hex for analysis (only for filtered security ID)
+                const shouldLog = !filterSecurityId || securityId === filterSecurityId;
+                if (shouldLog) {
+                    const hexDump = Array.from(new Uint8Array(packet))
+                        .map(b => b.toString(16).padStart(2, '0'))
+                        .join(' ');
+                    console.log(`🔍 DEBUG Packet | Type: ${messageType} | Exchange: ${exchange} | SecID: ${securityId} | Len: ${packetLength}`);
+                    console.log(`   Raw Hex: ${hexDump}`);
+                }
 
                 // Decode based on message type
                 switch (messageType) {
                     case 1:
-                        messages.push({ type: 'LTP', data: this.decodeLTP(packet, exchange, securityId) });
+                        messages.push({ type: 'LTP', data: this.decodeLTP(packet, exchange, securityId, shouldLog) });
                         break;
                     case 2:
                         messages.push({ type: 'MarketDepth', data: this.decodeMarketDepth(packet, exchange, securityId) });
@@ -108,15 +132,20 @@ export class WebSocketDecoder {
     /**
      * Message Type 1: LTP Update (37 bytes)
      */
-    private decodeLTP(buffer: ArrayBuffer, exchange: number, securityId: number): LTPData {
+    private decodeLTP(buffer: ArrayBuffer, exchange: number, securityId: number, shouldLog: boolean = true): LTPData {
         const ltp = new Float32Array(buffer.slice(11, 15))[0];
         const ltq = new Uint16Array(buffer.slice(15, 17))[0];
         const volume = new Uint32Array(buffer.slice(17, 21))[0];
         const atp = new Float32Array(buffer.slice(21, 25))[0];
         const oi = new Uint32Array(buffer.slice(25, 29))[0];
-        const timestamp = new Uint32Array(buffer.slice(29, 33))[0];
+        const rawTimestamp = new Uint32Array(buffer.slice(29, 33))[0];
 
-        console.log(`   📊 LTP Decoded: ltp=${ltp.toFixed(2)} | ltq=${ltq} | vol=${volume} | atp=${atp.toFixed(2)} | oi=${oi} | ts=${timestamp}`);
+        // Convert Dhan's custom epoch timestamp to actual ISO date
+        const timestamp = decodeDhanTimestamp(rawTimestamp);
+
+        if (shouldLog) {
+            console.log(`   📊 LTP Decoded: ltp=${ltp.toFixed(2)} | ltq=${ltq} | vol=${volume} | atp=${atp.toFixed(2)} | oi=${oi} | rawTs=${rawTimestamp} → ${timestamp}`);
+        }
 
         return {
             exchange: this.getExchangeName(exchange),
@@ -127,7 +156,7 @@ export class WebSocketDecoder {
             volume,
             atp: parseFloat(atp.toFixed(2)),
             oi: oi === 4294967295 ? 0 : oi, // Check for invalid OI
-            timestamp: new Date(timestamp * 1000).toISOString(),
+            timestamp: timestamp, // Now uses converted timestamp
             change: 0, // Calculated separately
             changePer: 0 // Calculated separately
         };

@@ -210,6 +210,33 @@ export function TradingChart() {
     };
   }, []); // No dependencies - runs once on mount
 
+  // Subscribe to live candle updates from context
+  const { liveCandle } = useChartData();
+
+  useEffect(() => {
+    if (!seriesRef.current || !liveCandle) return;
+
+    try {
+      const candleData: CandlestickData = {
+        time: liveCandle.time as Time,
+        open: liveCandle.open,
+        high: liveCandle.high,
+        low: liveCandle.low,
+        close: liveCandle.close
+      };
+
+      // Update the chart with live data
+      seriesRef.current.update(candleData);
+
+      console.log('📈 Updated chart with live candle:', {
+        timeISO: new Date(liveCandle.time * 1000).toISOString(),
+        ...candleData
+      });
+    } catch (error) {
+      console.error('Error updating chart with live candle:', error);
+    }
+  }, [liveCandle]);
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="mb-4 flex justify-between items-center">

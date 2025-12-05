@@ -61,13 +61,6 @@ export class RealtimeAggregator {
         if (candle && candle.time === candleTime) {
             // UPDATE EXISTING CANDLE
 
-            // Handle first tick of the second
-            if (candle.firstTick) {
-                candle.prevVolume = volume - candle.volume;
-                candle.volume = 0;
-                candle.firstTick = false;
-            }
-
             // Update High
             if (ltp > candle.high) {
                 candle.high = Math.max(ltp, candle.high);
@@ -83,7 +76,9 @@ export class RealtimeAggregator {
 
             // Accumulate volume (only new volume since last tick)
             if (volume !== candle.prevVolume) {
-                candle.volume += Number(volume - candle.prevVolume);
+                const volumeDelta = volume - candle.prevVolume;
+                candle.volume += volumeDelta;
+                console.log(`   🔢 Volume delta: ${volumeDelta} (total: ${candle.volume})`);
             }
             candle.prevVolume = volume;
 
@@ -96,11 +91,12 @@ export class RealtimeAggregator {
                 low: ltp,
                 close: ltp,
                 volume: 0,
-                prevVolume: volume,
+                prevVolume: volume, // Start from current cumulative volume
                 firstTick: true
             };
 
             this.candleCache.set(cacheKey, candle);
+            console.log(`   📍 New candle created at ${new Date(candleTime * 1000).toISOString()}, baseline volume: ${volume}`);
         }
 
         // Return formatted candle for display

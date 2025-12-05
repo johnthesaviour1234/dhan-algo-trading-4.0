@@ -77,8 +77,8 @@ export function useWebSocket(): UseWebSocketReturn {
                         return;
                     }
                 } else if (event.data instanceof ArrayBuffer) {
-                    // Binary message - decode it
-                    const messages = decoder.parseMessage(event.data);
+                    // Binary message - decode it (filter for Vodafone Idea security ID: 14366)
+                    const messages = decoder.parseMessage(event.data, 14366);
 
                     messages.forEach(msg => {
                         // Filter for Idea Vodafone only (security ID: 14366)

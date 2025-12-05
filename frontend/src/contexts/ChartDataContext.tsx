@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useRef, useState, useCallback } from 'react';
 import { CandlestickData } from 'lightweight-charts';
 import { ChartDataFetcher } from '../lib/ChartDataFetcher';
+import { OHLCCandle } from '../utils/RealtimeAggregator';
 
 interface ChartDataContextValue {
     historicalBars: CandlestickData[];
@@ -9,6 +10,8 @@ interface ChartDataContextValue {
     isLoading: boolean;
     setIsLoading: (loading: boolean) => void;
     fetchBars: (from: number, to: number) => Promise<CandlestickData[]>;
+    liveCandle: OHLCCandle | null;
+    setLiveCandle: (candle: OHLCCandle | null) => void;
 }
 
 const ChartDataContext = createContext<ChartDataContextValue | null>(null);
@@ -16,6 +19,7 @@ const ChartDataContext = createContext<ChartDataContextValue | null>(null);
 export function ChartDataProvider({ children }: { children: React.ReactNode }) {
     const [historicalBars, setHistoricalBars] = useState<CandlestickData[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [liveCandle, setLiveCandle] = useState<OHLCCandle | null>(null);
     const dataFetcherRef = useRef(new ChartDataFetcher());
 
     // Symbol configuration (hardcoded to Vodafone Idea for now)
@@ -55,6 +59,8 @@ export function ChartDataProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         setIsLoading,
         fetchBars,
+        liveCandle,
+        setLiveCandle,
     };
 
     return (
