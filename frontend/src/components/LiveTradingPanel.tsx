@@ -571,11 +571,15 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
   useEffect(() => {
     if (mergedOHLCData.length === 0 || activeStrategies.size === 0) return;
 
-    // Update EMA and SMA strategies with latest OHLC data
+    // Update EMA and SMA strategies with filtered OHLC data
     activeStrategies.forEach((strategy, id) => {
       if (id === 'ema_3_15_long' || id === 'sma_3_15_long') {
-        if ('updateWithOHLCData' in strategy) {
-          strategy.updateWithOHLCData(mergedOHLCData);
+        if ('updateWithOHLCData' in strategy && 'lookbackCandles' in strategy) {
+          const filteredData = getFilteredOHLCData(
+            mergedOHLCData,
+            (strategy as any).lookbackCandles
+          );
+          strategy.updateWithOHLCData(filteredData);
         }
       }
     });
