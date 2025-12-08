@@ -70,6 +70,28 @@ export class BacktestEngine {
     private readonly RISK_FREE_RATE = 0.06; // 6% annual risk-free rate (Indian context)
     private readonly SLIPPAGE_PERCENT = 0.0001; // 0.01% slippage
 
+    // Market hours (IST) - Intraday trading window
+    private readonly MARKET_OPEN_HOUR = 9;
+    private readonly MARKET_OPEN_MINUTE = 30;  // 9:30 AM
+    private readonly MARKET_CLOSE_HOUR = 14;
+    private readonly MARKET_CLOSE_MINUTE = 30; // 2:30 PM (forced close)
+
+    private getISTTimeInMinutes(unixTimestamp: number): number {
+        const date = new Date(unixTimestamp * 1000);
+        const hours = date.getUTCHours() + 5;
+        const minutes = date.getUTCMinutes() + 30;
+        return (hours + Math.floor(minutes / 60)) * 60 + (minutes % 60);
+    }
+
+    private isWithinMarketHours(unixTimestamp: number): boolean {
+        const time = this.getISTTimeInMinutes(unixTimestamp);
+        return time >= 570 && time < 870; // 9:30 AM to 2:30 PM
+    }
+
+    private isForceCloseTime(unixTimestamp: number): boolean {
+        return this.getISTTimeInMinutes(unixTimestamp) >= 870; // 2:30 PM
+    }
+
     /**
      * Run a backtest on historical data with the given strategy
      */
@@ -88,8 +110,8 @@ export class BacktestEngine {
         // Generate signals based on strategy type
         const signals = this.generateSignals(ohlcData, strategyConfig);
 
-        // Simulate trades from signals
-        const trades = this.simulateTrades(signals, strategyConfig, quantity);
+        // Simulate trades from signals (with OHLC for force close)
+        const trades = this.simulateTrades(signals, strategyConfig, quantity, ohlcData);
 
         console.log(`✅ [Backtest] Generated ${trades.length} trades`);
 
@@ -204,14 +226,16 @@ export class BacktestEngine {
     private simulateTrades(
         signals: { time: number; type: 'BUY' | 'SELL'; price: number; indicators: Record<string, number | boolean | string> }[],
         config: StrategyConfig,
-        quantity: number
+        quantity: number,
+        ohlcData: CandlestickData[]
     ): BacktestTrade[] {
         const trades: BacktestTrade[] = [];
         let position: Position | null = null;
         let tradeCount = 0;
 
         for (const signal of signals) {
-            if (signal.type === 'BUY' && position === null) {
+            // Only open new positions during market hours (9:30 AM - 2:30 PM IST)
+            if (signal.type === 'BUY' && position === null && this.isWithinMarketHours(signal.time)) {
                 // Open long position
                 position = {
                     entryTime: signal.time,
@@ -273,6 +297,44 @@ export class BacktestEngine {
                 });
 
                 position = null;
+            }
+        }
+
+        // Force close any open position at 2:30 PM (market close)
+        if (position !== null) {
+            for (const bar of ohlcData) {
+                const barTime = bar.time as number;
+                if (barTime > position.entryTime && this.isForceCloseTime(barTime)) {
+                    const exitPrice = bar.close * (1 - this.SLIPPAGE_PERCENT);
+                    const grossPnl = (exitPrice - position.entryPrice) * quantity;
+                    const costs = calculateIntradayTradeCosts({ buyPrice: position.entryPrice, sellPrice: exitPrice, quantity, exchange: 'NSE' });
+                    const netPnl = grossPnl - costs.totalCost;
+                    const pnlPercent = ((exitPrice - position.entryPrice) / position.entryPrice) * 100;
+                    const slippage = position.entryPrice * this.SLIPPAGE_PERCENT + exitPrice * this.SLIPPAGE_PERCENT;
+                    const entryDate = new Date(position.entryTime * 1000);
+                    const exitDate = new Date(barTime * 1000);
+                    const durationMinutes = Math.floor((exitDate.getTime() - entryDate.getTime()) / 60000);
+                    const duration = durationMinutes < 60 ? `${durationMinutes}min` : `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}min`;
+                    trades.push({
+                        id: `${config.name.replace(/\s+/g, '-').toLowerCase()}-${tradeCount++}`,
+                        entryDate: this.formatDateTime(entryDate),
+                        exitDate: this.formatDateTime(exitDate) + ' (Force Close)',
+                        direction: position.direction,
+                        entryPrice: parseFloat(position.entryPrice.toFixed(2)),
+                        exitPrice: parseFloat(exitPrice.toFixed(2)),
+                        quantity,
+                        grossPnl: parseFloat(grossPnl.toFixed(2)),
+                        pnl: parseFloat(netPnl.toFixed(2)),
+                        pnlPercent: parseFloat(pnlPercent.toFixed(2)),
+                        duration,
+                        signal: 'Sell',
+                        slippage: parseFloat(slippage.toFixed(2)),
+                        costs,
+                        indicators: { ...position.indicators, 'Exit Reason': 'Market Close (2:30 PM)' }
+                    });
+                    position = null;
+                    break;
+                }
             }
         }
 
@@ -499,3 +561,6 @@ export class BacktestEngine {
 
 // Singleton instance
 export const backtestEngine = new BacktestEngine();
+
+
+
