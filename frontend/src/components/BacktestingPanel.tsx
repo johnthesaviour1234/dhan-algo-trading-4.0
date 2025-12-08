@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { Calendar, Play, TrendingUp, TrendingDown, Activity, Target, BarChart3, DollarSign, Plus, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, TrendingUp, TrendingDown, Activity, Target, BarChart3, DollarSign, Plus, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { StrategyCard } from './StrategyCard';
 import { LiveTradingPanel } from './LiveTradingPanel';
+import { backtestDataFetcher, BacktestSymbolConfig } from '../lib/BacktestDataFetcher';
+import { backtestEngine, StrategyConfig } from '../lib/BacktestEngine';
+import type { TradeCosts } from '../utils/BrokerageCalculator';
 
 export interface MetricData {
   return: number;
@@ -20,12 +23,13 @@ export interface Trade {
   entryPrice: number;
   exitPrice: number;
   quantity: number;
-  pnl: number;
+  grossPnl: number;  // P&L before costs
+  pnl: number;       // Net P&L after all costs
   pnlPercent: number;
   duration: string;
   signal: 'Buy' | 'Sell';
-  brokerage: number;
   slippage: number;
+  costs: TradeCosts;  // Detailed cost breakdown
   indicators?: Record<string, number | boolean | string>;
 }
 
@@ -42,21 +46,104 @@ export interface StrategyPerformance {
     overall: MetricData;
   };
   trades: Trade[];
-  calculations?: import('../types/CalculationRow').CalculationRow[];  // Real-time calculations for EMA/SMA strategies
+  calculations?: import('../types/CalculationRow').CalculationRow[];
 }
 
-const availableStrategies = [
-  { id: '1', name: 'SMA Crossover', type: 'trend' },
-  { id: '2', name: 'RSI Mean Reversion', type: 'mean-reversion' },
-  { id: '3', name: 'Breakout Strategy', type: 'momentum' },
-  { id: '4', name: 'Bollinger Bands', type: 'volatility' },
-  { id: '5', name: 'MACD Strategy', type: 'trend' },
-  { id: '6', name: 'Pairs Trading', type: 'statistical' },
+// Real strategy configurations that map to the BacktestEngine
+interface AvailableStrategy {
+  id: string;
+  name: string;
+  type: string;
+  engineConfig: StrategyConfig;
+}
+
+const availableStrategies: AvailableStrategy[] = [
+  {
+    id: '1',
+    name: 'SMA 3/15 Crossover',
+    type: 'trend',
+    engineConfig: {
+      name: 'SMA 3/15 Crossover',
+      type: 'sma-crossover',
+      direction: 'long',
+      params: { fastPeriod: 3, slowPeriod: 15 }
+    }
+  },
+  {
+    id: '2',
+    name: 'SMA 5/20 Crossover',
+    type: 'trend',
+    engineConfig: {
+      name: 'SMA 5/20 Crossover',
+      type: 'sma-crossover',
+      direction: 'long',
+      params: { fastPeriod: 5, slowPeriod: 20 }
+    }
+  },
+  {
+    id: '3',
+    name: 'EMA 3/15 Crossover',
+    type: 'trend',
+    engineConfig: {
+      name: 'EMA 3/15 Crossover',
+      type: 'ema-crossover',
+      direction: 'long',
+      params: { fastPeriod: 3, slowPeriod: 15 }
+    }
+  },
+  {
+    id: '4',
+    name: 'EMA 9/21 Crossover',
+    type: 'trend',
+    engineConfig: {
+      name: 'EMA 9/21 Crossover',
+      type: 'ema-crossover',
+      direction: 'long',
+      params: { fastPeriod: 9, slowPeriod: 21 }
+    }
+  },
+  {
+    id: '5',
+    name: 'SMA 10/50 Crossover',
+    type: 'trend',
+    engineConfig: {
+      name: 'SMA 10/50 Crossover',
+      type: 'sma-crossover',
+      direction: 'long',
+      params: { fastPeriod: 10, slowPeriod: 50 }
+    }
+  },
+  {
+    id: '6',
+    name: 'EMA 12/26 Crossover',
+    type: 'trend',
+    engineConfig: {
+      name: 'EMA 12/26 Crossover',
+      type: 'ema-crossover',
+      direction: 'long',
+      params: { fastPeriod: 12, slowPeriod: 26 }
+    }
+  },
 ];
+
+// Symbol configuration for backtesting (same as chart)
+const symbolConfig: BacktestSymbolConfig = {
+  symbol: 'RELIANCE',
+  exchange: 'NSE',
+  segment: 'E',
+  secId: 14366,
+  interval: '1', // 1 minute
+};
+
+interface SelectedStrategy extends AvailableStrategy {
+  strategyId: string;
+}
+
 interface BacktestingPanelProps {
   orders: import('../App').ProcessedOrder[];
   setOrders: React.Dispatch<React.SetStateAction<import('../App').ProcessedOrder[]>>;
 }
+
 export function BacktestingPanel({ orders, setOrders }: BacktestingPanelProps) {
   const [activeTab, setActiveTab] = useState<'backtesting' | 'live'>('backtesting');
 
@@ -85,26 +172,30 @@ export function BacktestingPanel({ orders, setOrders }: BacktestingPanelProps) {
       </div>
 
       {/* Content */}
-      {activeTab === 'backtesting' ? <BacktestingContent /> : <LiveTradingPanel orders={orders} setOrders={setOrders} />}   </div>
+      {activeTab === 'backtesting' ? <BacktestingContent /> : <LiveTradingPanel orders={orders} setOrders={setOrders} />}
+    </div>
   );
 }
 
 function BacktestingContent() {
-  const [startDate, setStartDate] = useState('2024-01-01');
-  const [endDate, setEndDate] = useState('2024-12-31');
-  const [selectedStrategies, setSelectedStrategies] = useState<typeof availableStrategies>([]);
+  // Default to last 30 days
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  const [startDate, setStartDate] = useState(thirtyDaysAgo.toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
+  const [selectedStrategies, setSelectedStrategies] = useState<SelectedStrategy[]>([]);
   const [performanceData, setPerformanceData] = useState<StrategyPerformance[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [hasResults, setHasResults] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [progress, setProgress] = useState({ percent: 0, message: '' });
+  const [error, setError] = useState<string | null>(null);
 
-  const addStrategy = (strategyTemplate: typeof availableStrategies[0]) => {
-    const newStrategy: StrategyPerformance = {
+  const addStrategy = (strategyTemplate: AvailableStrategy) => {
+    const newStrategy: SelectedStrategy = {
+      ...strategyTemplate,
       strategyId: `${strategyTemplate.id}-${Date.now()}`,
-      strategyName: strategyTemplate.name,
-      strategyType: strategyTemplate.type,
-      metrics: generateMockMetrics(),
-      trades: [],
     };
     setSelectedStrategies([...selectedStrategies, newStrategy]);
   };
@@ -114,28 +205,90 @@ function BacktestingContent() {
     setPerformanceData(performanceData.filter(p => p.strategyId !== id));
   };
 
-  const runBacktest = () => {
+  const runBacktest = async () => {
     if (selectedStrategies.length === 0) return;
 
     setIsRunning(true);
+    setError(null);
+    setProgress({ percent: 0, message: 'Starting backtest...' });
 
-    // Simulate backtesting
-    setTimeout(() => {
-      const results = selectedStrategies.map(strategy => {
-        const trades = generateMockTradesForStrategy(strategy.strategyName);
-        return {
+    try {
+      // Parse dates
+      const fromDate = new Date(startDate);
+      fromDate.setHours(0, 0, 0, 0);
+
+      const toDate = new Date(endDate);
+      toDate.setHours(23, 59, 59, 999);
+
+      console.log(`🧪 [Backtest] Running from ${fromDate.toISOString()} to ${toDate.toISOString()}`);
+      console.log(`🧪 [Backtest] Strategies: ${selectedStrategies.map(s => s.name).join(', ')}`);
+
+      // Step 1: Fetch historical data
+      setProgress({ percent: 10, message: 'Fetching historical data...' });
+
+      const ohlcData = await backtestDataFetcher.fetchBacktestData(
+        fromDate,
+        toDate,
+        symbolConfig,
+        (percent, message) => {
+          // Scale progress from 10-60% during data fetch
+          setProgress({ percent: 10 + Math.floor(percent * 0.5), message });
+        }
+      );
+
+      if (ohlcData.length === 0) {
+        throw new Error('No historical data available for the selected date range');
+      }
+
+      console.log(`📊 [Backtest] Fetched ${ohlcData.length} candles`);
+      setProgress({ percent: 60, message: `Processing ${ohlcData.length} candles...` });
+
+      // Step 2: Run backtest for each strategy
+      const results: StrategyPerformance[] = [];
+
+      for (let i = 0; i < selectedStrategies.length; i++) {
+        const strategy = selectedStrategies[i];
+        const progressPercent = 60 + Math.floor(((i + 1) / selectedStrategies.length) * 35);
+
+        setProgress({
+          percent: progressPercent,
+          message: `Running ${strategy.name}... (${i + 1}/${selectedStrategies.length})`
+        });
+
+        // Run the backtest engine
+        const { trades, metrics } = backtestEngine.runBacktest(
+          ohlcData,
+          strategy.engineConfig,
+          1 // quantity
+        );
+
+        // Convert BacktestTrade to Trade interface
+        const convertedTrades: Trade[] = trades.map(t => ({
+          ...t,
+          indicators: t.indicators
+        }));
+
+        results.push({
           strategyId: strategy.strategyId,
-          strategyName: strategy.strategyName,
-          strategyType: strategy.strategyType,
-          metrics: generateMockMetrics(),
-          trades: trades,
-        };
-      });
+          strategyName: strategy.name,
+          strategyType: strategy.type,
+          metrics: metrics,
+          trades: convertedTrades,
+        });
 
+        console.log(`✅ [Backtest] ${strategy.name}: ${trades.length} trades`);
+      }
+
+      setProgress({ percent: 100, message: 'Backtest complete!' });
       setPerformanceData(results);
       setHasResults(true);
+
+    } catch (err: any) {
+      console.error('❌ [Backtest] Error:', err);
+      setError(err.message || 'An error occurred during backtesting');
+    } finally {
       setIsRunning(false);
-    }, 2000);
+    }
   };
 
   const calculateCombinedMetrics = (): StrategyPerformance['metrics'] => {
@@ -181,7 +334,7 @@ function BacktestingContent() {
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="mb-6">
         <h2 className="text-gray-900">Backtesting Panel</h2>
-        <p className="text-gray-600">Configure and run backtests</p>
+        <p className="text-gray-600">Run strategies against real historical data</p>
       </div>
 
       {/* Date Selection */}
@@ -209,6 +362,15 @@ function BacktestingContent() {
             onChange={(e) => setEndDate(e.target.value)}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+        </div>
+      </div>
+
+      {/* Symbol Info */}
+      <div className="mb-6 p-3 bg-blue-50 rounded-lg">
+        <div className="text-sm text-blue-800">
+          <span className="font-medium">Symbol:</span> {symbolConfig.symbol} ({symbolConfig.exchange})
+          <span className="mx-2">•</span>
+          <span className="font-medium">Interval:</span> {symbolConfig.interval} minute
         </div>
       </div>
 
@@ -241,7 +403,7 @@ function BacktestingContent() {
                 key={strategy.strategyId}
                 className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg"
               >
-                <span className="text-gray-700">{strategy.strategyName}</span>
+                <span className="text-gray-700">{strategy.name}</span>
                 <button
                   onClick={() => removeStrategy(strategy.strategyId)}
                   className="text-gray-400 hover:text-red-500 transition-colors"
@@ -254,6 +416,30 @@ function BacktestingContent() {
         </div>
       )}
 
+      {/* Progress Bar */}
+      {isRunning && (
+        <div className="mb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+            <span className="text-gray-700">{progress.message}</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${progress.percent}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div className="text-red-800 font-medium">Error</div>
+          <div className="text-red-600">{error}</div>
+        </div>
+      )}
+
       {/* Run Button */}
       <button
         onClick={runBacktest}
@@ -262,7 +448,7 @@ function BacktestingContent() {
       >
         {isRunning ? (
           <>
-            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            <Loader2 className="w-5 h-5 animate-spin" />
             Running Backtest...
           </>
         ) : (
@@ -325,130 +511,6 @@ function BacktestingContent() {
       )}
     </div>
   );
-}
-
-function generateMockMetrics(): StrategyPerformance['metrics'] {
-  const generateMetric = (): MetricData => ({
-    return: parseFloat((Math.random() * 40 - 10).toFixed(2)),
-    sharpeRatio: parseFloat((Math.random() * 3).toFixed(2)),
-    maxDrawdown: parseFloat((-Math.random() * 20).toFixed(2)),
-    winRate: parseFloat((40 + Math.random() * 30).toFixed(2)),
-    totalTrades: Math.floor(Math.random() * 500 + 50),
-    profitFactor: parseFloat((0.8 + Math.random() * 2).toFixed(2)),
-  });
-
-  return {
-    daily: generateMetric(),
-    weekly: generateMetric(),
-    monthly: generateMetric(),
-    quarterly: generateMetric(),
-    yearly: generateMetric(),
-    overall: generateMetric(),
-  };
-}
-
-function generateMockTradesForStrategy(strategyName: string): Trade[] {
-  const trades: Trade[] = [];
-  const tradeCount = Math.floor(Math.random() * 50 + 10);
-  const start = new Date('2024-01-01');
-
-  for (let i = 0; i < tradeCount; i++) {
-    const entryDate = new Date(start);
-    entryDate.setDate(start.getDate() + Math.floor(Math.random() * 300));
-    const exitDate = new Date(entryDate);
-    exitDate.setDate(entryDate.getDate() + Math.floor(Math.random() * 30 + 1));
-
-    const direction = Math.random() > 0.5 ? 'Long' : 'Short';
-    const entryPrice = parseFloat((Math.random() * 100 + 50).toFixed(2));
-    const priceChange = (Math.random() * 20 - 10);
-    const exitPrice = parseFloat((entryPrice + (direction === 'Long' ? priceChange : -priceChange)).toFixed(2));
-    const quantity = Math.floor(Math.random() * 100 + 10);
-
-    const pnl = direction === 'Long'
-      ? (exitPrice - entryPrice) * quantity
-      : (entryPrice - exitPrice) * quantity;
-    const pnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100 * (direction === 'Long' ? 1 : -1);
-
-    const durationDays = Math.floor((exitDate.getTime() - entryDate.getTime()) / (1000 * 60 * 60 * 24));
-    const duration = durationDays === 1 ? '1 day' : `${durationDays} days`;
-
-    // Generate strategy-specific indicators
-    let indicators: Record<string, number | boolean | string> = {};
-
-    if (strategyName === 'SMA Crossover') {
-      const sma5 = parseFloat((entryPrice + Math.random() * 10 - 5).toFixed(2));
-      const sma30 = parseFloat((entryPrice + Math.random() * 10 - 5).toFixed(2));
-      indicators = {
-        'SMA 5': sma5,
-        'SMA 30': sma30,
-        'SMA 5 > SMA 30': sma5 > sma30,
-      };
-    } else if (strategyName === 'RSI Mean Reversion') {
-      const rsi = parseFloat((Math.random() * 100).toFixed(2));
-      indicators = {
-        'RSI 14': rsi,
-        'RSI < 30': rsi < 30,
-        'RSI > 70': rsi > 70,
-      };
-    } else if (strategyName === 'Breakout Strategy') {
-      const high20 = parseFloat((entryPrice + Math.random() * 5).toFixed(2));
-      const low20 = parseFloat((entryPrice - Math.random() * 5).toFixed(2));
-      indicators = {
-        '20D High': high20,
-        '20D Low': low20,
-        'Price > High': entryPrice > high20,
-        'Volume': Math.floor(Math.random() * 1000000 + 100000),
-      };
-    } else if (strategyName === 'Bollinger Bands') {
-      const upperBand = parseFloat((entryPrice + Math.random() * 10).toFixed(2));
-      const lowerBand = parseFloat((entryPrice - Math.random() * 10).toFixed(2));
-      const middleBand = parseFloat(((upperBand + lowerBand) / 2).toFixed(2));
-      indicators = {
-        'Upper Band': upperBand,
-        'Middle Band': middleBand,
-        'Lower Band': lowerBand,
-        'Price > Upper': entryPrice > upperBand,
-        'Price < Lower': entryPrice < lowerBand,
-      };
-    } else if (strategyName === 'MACD Strategy') {
-      const macd = parseFloat((Math.random() * 4 - 2).toFixed(2));
-      const signal = parseFloat((Math.random() * 4 - 2).toFixed(2));
-      indicators = {
-        'MACD': macd,
-        'Signal': signal,
-        'MACD > Signal': macd > signal,
-        'Histogram': parseFloat((macd - signal).toFixed(2)),
-      };
-    } else if (strategyName === 'Pairs Trading') {
-      const spread = parseFloat((Math.random() * 10 - 5).toFixed(2));
-      const zScore = parseFloat((Math.random() * 4 - 2).toFixed(2));
-      indicators = {
-        'Spread': spread,
-        'Z-Score': zScore,
-        'Z-Score > 2': Math.abs(zScore) > 2,
-        'Mean Spread': parseFloat((Math.random() * 5).toFixed(2)),
-      };
-    }
-
-    trades.push({
-      id: `trade-${i}`,
-      entryDate: entryDate.toISOString().split('T')[0],
-      exitDate: exitDate.toISOString().split('T')[0],
-      direction: direction,
-      entryPrice: entryPrice,
-      exitPrice: exitPrice,
-      quantity: quantity,
-      pnl: parseFloat(pnl.toFixed(2)),
-      pnlPercent: parseFloat(pnlPercent.toFixed(2)),
-      duration: duration,
-      signal: direction === 'Long' ? 'Buy' : 'Sell',
-      brokerage: parseFloat((Math.random() * 10).toFixed(2)),
-      slippage: parseFloat((Math.random() * 0.5).toFixed(2)),
-      indicators: indicators,
-    });
-  }
-
-  return trades.sort((a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime());
 }
 
 interface MetricsDisplayProps {

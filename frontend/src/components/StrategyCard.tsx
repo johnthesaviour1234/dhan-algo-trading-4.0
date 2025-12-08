@@ -148,7 +148,7 @@ export function StrategyCard({ performance, onRemove, totalStrategies }: Strateg
                   <th className="text-right py-3 px-3 text-gray-700">Entry Price</th>
                   <th className="text-right py-3 px-3 text-gray-700">Exit Price</th>
                   <th className="text-right py-3 px-3 text-gray-700">Quantity</th>
-                  <th className="text-right py-3 px-3 text-gray-700">Brokerage</th>
+                  <th className="text-right py-3 px-3 text-gray-700">Total Cost</th>
                   <th className="text-right py-3 px-3 text-gray-700">Slippage</th>
                   <th className="text-right py-3 px-3 text-gray-700">P&L</th>
                   <th className="text-right py-3 px-3 text-gray-700">P&L %</th>
@@ -189,16 +189,16 @@ export function StrategyCard({ performance, onRemove, totalStrategies }: Strateg
                       </td>
                     ))}
 
-                    <td className="py-3 px-3 text-right text-gray-600">${trade.entryPrice.toFixed(2)}</td>
-                    <td className="py-3 px-3 text-right text-gray-600">${trade.exitPrice.toFixed(2)}</td>
+                    <td className="py-3 px-3 text-right text-gray-600">₹{trade.entryPrice.toFixed(2)}</td>
+                    <td className="py-3 px-3 text-right text-gray-600">₹{trade.exitPrice.toFixed(2)}</td>
                     <td className="py-3 px-3 text-right text-gray-600">{trade.quantity}</td>
-                    <td className="py-3 px-3 text-right text-gray-600">${trade.brokerage.toFixed(2)}</td>
-                    <td className="py-3 px-3 text-right text-gray-600">${trade.slippage.toFixed(2)}</td>
-                    <td className={`py-3 px-3 text-right ${trade.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      ${trade.pnl.toFixed(2)}
+                    <td className="py-3 px-3 text-right text-gray-600">₹{trade.costs?.totalCost?.toFixed(2) ?? '0.00'}</td>
+                    <td className="py-3 px-3 text-right text-gray-600">₹{trade.slippage?.toFixed(2) ?? '0.00'}</td>
+                    <td className={`py-3 px-3 text-right ${(trade.pnl ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      ₹{trade.pnl?.toFixed(2) ?? '0.00'}
                     </td>
-                    <td className={`py-3 px-3 text-right ${trade.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {trade.pnlPercent >= 0 ? '+' : ''}{trade.pnlPercent.toFixed(2)}%
+                    <td className={`py-3 px-3 text-right ${(trade.pnlPercent ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {(trade.pnlPercent ?? 0) >= 0 ? '+' : ''}{trade.pnlPercent?.toFixed(2) ?? '0.00'}%
                     </td>
                     <td className="py-3 px-3 text-right text-gray-600">{trade.duration}</td>
                   </tr>
