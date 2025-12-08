@@ -87,11 +87,17 @@ export function StrategyCard({ performance, onRemove, totalStrategies }: Strateg
           <div key={key} className="bg-gray-50 rounded-lg p-4">
             <div className="text-gray-700 mb-3">{label}</div>
 
-            <div className="grid grid-cols-6 gap-3">
+            <div className="grid grid-cols-7 gap-3">
               <MiniMetric
                 label="Return"
                 value={`${performance.metrics[key].return > 0 ? '+' : ''}${performance.metrics[key].return.toFixed(2)}%`}
                 positive={performance.metrics[key].return > 0}
+              />
+
+              <MiniMetric
+                label="Expectancy"
+                value={`₹${performance.metrics[key].expectancy.toFixed(2)}`}
+                positive={performance.metrics[key].expectancy > 0}
               />
 
               <MiniMetric

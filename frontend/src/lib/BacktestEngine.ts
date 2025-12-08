@@ -35,6 +35,7 @@ export interface MetricData {
     winRate: number;
     totalTrades: number;
     profitFactor: number;
+    expectancy: number;  // Average profit per trade (₹)
 }
 
 export interface BacktestMetrics {
@@ -433,6 +434,10 @@ export class BacktestEngine {
         const sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0;
         const avgSharpePerPeriod = sharpeRatio / Math.sqrt(numPeriods);
 
+        // Calculate expectancy: average profit per trade
+        const expectancy = totalPnl / trades.length;
+        const avgExpectancyPerPeriod = expectancy; // Same value per period, represents avg per trade
+
         return {
             return: parseFloat(avgReturnPerPeriod.toFixed(2)),
             sharpeRatio: parseFloat(avgSharpePerPeriod.toFixed(2)),
@@ -440,6 +445,7 @@ export class BacktestEngine {
             winRate: parseFloat(winRate.toFixed(2)),
             totalTrades: avgTradesPerPeriod,
             profitFactor: parseFloat(Math.min(profitFactor, 99.99).toFixed(2)),
+            expectancy: parseFloat(avgExpectancyPerPeriod.toFixed(2)),
         };
     }
 
@@ -484,6 +490,9 @@ export class BacktestEngine {
             ? (annualizedAvgReturn - this.RISK_FREE_RATE) / annualizedStdDev
             : 0;
 
+        // Calculate expectancy: average profit per trade
+        const expectancy = totalPnl / trades.length;
+
         return {
             return: parseFloat(totalReturn.toFixed(2)),
             sharpeRatio: parseFloat(sharpeRatio.toFixed(2)),
@@ -491,6 +500,7 @@ export class BacktestEngine {
             winRate: parseFloat(winRate.toFixed(2)),
             totalTrades: trades.length,
             profitFactor: parseFloat(Math.min(profitFactor, 99.99).toFixed(2)),
+            expectancy: parseFloat(expectancy.toFixed(2)),
         };
     }
 
@@ -555,6 +565,7 @@ export class BacktestEngine {
             winRate: 0,
             totalTrades: 0,
             profitFactor: 0,
+            expectancy: 0,
         };
     }
 }
