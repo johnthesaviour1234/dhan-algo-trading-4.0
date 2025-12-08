@@ -11,6 +11,7 @@ export interface MetricData {
   sharpeRatio: number;
   maxDrawdown: number;
   winRate: number;
+  lossRate: number;    // 100% - Win Rate
   totalTrades: number;
   profitFactor: number;
   expectancy: number;  // (Win Rate × Avg Win) - (Loss Rate × Avg Loss)
@@ -297,12 +298,12 @@ function BacktestingContent() {
   const calculateCombinedMetrics = (): StrategyPerformance['metrics'] => {
     if (performanceData.length === 0) {
       return {
-        daily: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
-        weekly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
-        monthly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
-        quarterly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
-        yearly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
-        overall: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        daily: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        weekly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        monthly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        quarterly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        yearly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        overall: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
       };
     }
 
@@ -317,6 +318,7 @@ function BacktestingContent() {
       const avgSharpe = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].sharpeRatio, 0) / performanceData.length;
       const maxDrawdown = Math.min(...performanceData.map(p => p.metrics[timeframe].maxDrawdown));
       const avgWinRate = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].winRate, 0) / performanceData.length;
+      const avgLossRate = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].lossRate, 0) / performanceData.length;
       const totalTrades = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].totalTrades, 0);
       const avgProfitFactor = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].profitFactor, 0) / performanceData.length;
       const avgExpectancy = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].expectancy, 0) / performanceData.length;
@@ -328,6 +330,7 @@ function BacktestingContent() {
         sharpeRatio: avgSharpe,
         maxDrawdown: maxDrawdown,
         winRate: avgWinRate,
+        lossRate: avgLossRate,
         totalTrades: totalTrades,
         profitFactor: avgProfitFactor,
         expectancy: avgExpectancy,
@@ -542,7 +545,7 @@ function MetricsDisplay({ metrics }: MetricsDisplayProps) {
         <div key={key} className="bg-gray-50 rounded-lg p-4">
           <div className="text-gray-700 mb-3">{label}</div>
 
-          <div className="grid grid-cols-9 gap-2">
+          <div className="grid grid-cols-10 gap-2">
             <MetricCard
               icon={<TrendingUp className="w-4 h-4" />}
               label="Return"
@@ -576,6 +579,13 @@ function MetricsDisplay({ metrics }: MetricsDisplayProps) {
               label="Win Rate"
               value={`${metrics[key].winRate.toFixed(2)}%`}
               positive={metrics[key].winRate > 50}
+            />
+
+            <MetricCard
+              icon={<Target className="w-4 h-4" />}
+              label="Loss Rate"
+              value={`${metrics[key].lossRate.toFixed(2)}%`}
+              positive={metrics[key].lossRate < 50}
             />
 
             <MetricCard

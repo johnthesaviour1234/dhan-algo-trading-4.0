@@ -33,6 +33,7 @@ export interface MetricData {
     sharpeRatio: number;
     maxDrawdown: number;
     winRate: number;
+    lossRate: number;    // 100% - Win Rate
     totalTrades: number;
     profitFactor: number;
     expectancy: number;  // (Win Rate × Avg Win) - (Loss Rate × Avg Loss)
@@ -448,6 +449,7 @@ export class BacktestEngine {
             sharpeRatio: parseFloat(avgSharpePerPeriod.toFixed(2)),
             maxDrawdown: parseFloat(avgMaxDrawdown.toFixed(2)),
             winRate: parseFloat(winRate.toFixed(2)),
+            lossRate: parseFloat((100 - winRate).toFixed(2)),
             totalTrades: avgTradesPerPeriod,
             profitFactor: parseFloat(Math.min(profitFactor, 99.99).toFixed(2)),
             expectancy: parseFloat(expectancy.toFixed(2)),
@@ -509,6 +511,7 @@ export class BacktestEngine {
             sharpeRatio: parseFloat(sharpeRatio.toFixed(2)),
             maxDrawdown: parseFloat(maxDrawdown.toFixed(2)),
             winRate: parseFloat(winRate.toFixed(2)),
+            lossRate: parseFloat((100 - winRate).toFixed(2)),
             totalTrades: trades.length,
             profitFactor: parseFloat(Math.min(profitFactor, 99.99).toFixed(2)),
             expectancy: parseFloat(expectancy.toFixed(2)),
@@ -576,6 +579,7 @@ export class BacktestEngine {
             sharpeRatio: 0,
             maxDrawdown: 0,
             winRate: 0,
+            lossRate: 0,
             totalTrades: 0,
             profitFactor: 0,
             expectancy: 0,
