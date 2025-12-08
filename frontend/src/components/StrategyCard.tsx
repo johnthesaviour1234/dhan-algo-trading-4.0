@@ -1,5 +1,5 @@
-import { Trash2, TrendingUp, TrendingDown, Activity, Target, BarChart3, DollarSign, PieChart } from 'lucide-react';
-import type { StrategyPerformance, Trade } from './BacktestingPanel';
+import { Trash2, PieChart } from 'lucide-react';
+import type { StrategyPerformance } from './BacktestingPanel';
 import { useState } from 'react';
 import { CalculationsTable } from './CalculationsTable';
 
@@ -87,7 +87,7 @@ export function StrategyCard({ performance, onRemove, totalStrategies }: Strateg
           <div key={key} className="bg-gray-50 rounded-lg p-4">
             <div className="text-gray-700 mb-3">{label}</div>
 
-            <div className="grid grid-cols-7 gap-3">
+            <div className="grid grid-cols-9 gap-2">
               <MiniMetric
                 label="Return"
                 value={`${performance.metrics[key].return > 0 ? '+' : ''}${performance.metrics[key].return.toFixed(2)}%`}
@@ -98,6 +98,30 @@ export function StrategyCard({ performance, onRemove, totalStrategies }: Strateg
                 label="Expectancy"
                 value={`₹${performance.metrics[key].expectancy.toFixed(2)}`}
                 positive={performance.metrics[key].expectancy > 0}
+              />
+
+              <MiniMetric
+                label="Avg Win"
+                value={`₹${performance.metrics[key].avgWin.toFixed(2)}`}
+                positive={true}
+              />
+
+              <MiniMetric
+                label="Avg Loss"
+                value={`₹${performance.metrics[key].avgLoss.toFixed(2)}`}
+                positive={false}
+              />
+
+              <MiniMetric
+                label="Win Rate"
+                value={`${performance.metrics[key].winRate.toFixed(2)}%`}
+                positive={performance.metrics[key].winRate > 50}
+              />
+
+              <MiniMetric
+                label="Profit Factor"
+                value={performance.metrics[key].profitFactor.toFixed(2)}
+                positive={performance.metrics[key].profitFactor > 1}
               />
 
               <MiniMetric
@@ -113,20 +137,8 @@ export function StrategyCard({ performance, onRemove, totalStrategies }: Strateg
               />
 
               <MiniMetric
-                label="Win Rate"
-                value={`${performance.metrics[key].winRate.toFixed(2)}%`}
-                positive={performance.metrics[key].winRate > 50}
-              />
-
-              <MiniMetric
                 label="Trades"
                 value={performance.metrics[key].totalTrades.toString()}
-              />
-
-              <MiniMetric
-                label="Profit Factor"
-                value={performance.metrics[key].profitFactor.toFixed(2)}
-                positive={performance.metrics[key].profitFactor > 1}
               />
             </div>
           </div>

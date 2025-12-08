@@ -13,6 +13,9 @@ export interface MetricData {
   winRate: number;
   totalTrades: number;
   profitFactor: number;
+  expectancy: number;  // (Win Rate × Avg Win) - (Loss Rate × Avg Loss)
+  avgWin: number;      // Average winning trade (₹)
+  avgLoss: number;     // Average losing trade (₹)
 }
 
 export interface Trade {
@@ -294,12 +297,12 @@ function BacktestingContent() {
   const calculateCombinedMetrics = (): StrategyPerformance['metrics'] => {
     if (performanceData.length === 0) {
       return {
-        daily: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
-        weekly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
-        monthly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
-        quarterly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
-        yearly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
-        overall: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
+        daily: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        weekly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        monthly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        quarterly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        yearly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        overall: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
       };
     }
 
@@ -316,6 +319,9 @@ function BacktestingContent() {
       const avgWinRate = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].winRate, 0) / performanceData.length;
       const totalTrades = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].totalTrades, 0);
       const avgProfitFactor = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].profitFactor, 0) / performanceData.length;
+      const avgExpectancy = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].expectancy, 0) / performanceData.length;
+      const avgWin = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].avgWin, 0) / performanceData.length;
+      const avgLoss = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].avgLoss, 0) / performanceData.length;
 
       combined[timeframe] = {
         return: avgReturn,
@@ -324,6 +330,9 @@ function BacktestingContent() {
         winRate: avgWinRate,
         totalTrades: totalTrades,
         profitFactor: avgProfitFactor,
+        expectancy: avgExpectancy,
+        avgWin: avgWin,
+        avgLoss: avgLoss,
       };
     });
 
@@ -533,7 +542,7 @@ function MetricsDisplay({ metrics }: MetricsDisplayProps) {
         <div key={key} className="bg-gray-50 rounded-lg p-4">
           <div className="text-gray-700 mb-3">{label}</div>
 
-          <div className="grid grid-cols-6 gap-3">
+          <div className="grid grid-cols-9 gap-2">
             <MetricCard
               icon={<TrendingUp className="w-4 h-4" />}
               label="Return"
@@ -542,17 +551,24 @@ function MetricsDisplay({ metrics }: MetricsDisplayProps) {
             />
 
             <MetricCard
-              icon={<Activity className="w-4 h-4" />}
-              label="Sharpe Ratio"
-              value={metrics[key].sharpeRatio.toFixed(2)}
-              positive={metrics[key].sharpeRatio > 1}
+              icon={<DollarSign className="w-4 h-4" />}
+              label="Expectancy"
+              value={`₹${metrics[key].expectancy.toFixed(2)}`}
+              positive={metrics[key].expectancy > 0}
+            />
+
+            <MetricCard
+              icon={<TrendingUp className="w-4 h-4" />}
+              label="Avg Win"
+              value={`₹${metrics[key].avgWin.toFixed(2)}`}
+              positive={true}
             />
 
             <MetricCard
               icon={<TrendingDown className="w-4 h-4" />}
-              label="Max Drawdown"
-              value={`${metrics[key].maxDrawdown.toFixed(2)}%`}
-              positive={metrics[key].maxDrawdown > -10}
+              label="Avg Loss"
+              value={`₹${metrics[key].avgLoss.toFixed(2)}`}
+              positive={false}
             />
 
             <MetricCard
@@ -563,16 +579,30 @@ function MetricsDisplay({ metrics }: MetricsDisplayProps) {
             />
 
             <MetricCard
-              icon={<BarChart3 className="w-4 h-4" />}
-              label="Total Trades"
-              value={metrics[key].totalTrades.toString()}
-            />
-
-            <MetricCard
               icon={<DollarSign className="w-4 h-4" />}
               label="Profit Factor"
               value={metrics[key].profitFactor.toFixed(2)}
               positive={metrics[key].profitFactor > 1}
+            />
+
+            <MetricCard
+              icon={<Activity className="w-4 h-4" />}
+              label="Sharpe"
+              value={metrics[key].sharpeRatio.toFixed(2)}
+              positive={metrics[key].sharpeRatio > 1}
+            />
+
+            <MetricCard
+              icon={<TrendingDown className="w-4 h-4" />}
+              label="Max DD"
+              value={`${metrics[key].maxDrawdown.toFixed(2)}%`}
+              positive={metrics[key].maxDrawdown > -10}
+            />
+
+            <MetricCard
+              icon={<BarChart3 className="w-4 h-4" />}
+              label="Trades"
+              value={metrics[key].totalTrades.toString()}
             />
           </div>
         </div>

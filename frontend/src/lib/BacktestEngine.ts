@@ -35,7 +35,9 @@ export interface MetricData {
     winRate: number;
     totalTrades: number;
     profitFactor: number;
-    expectancy: number;  // Average profit per trade (₹)
+    expectancy: number;  // (Win Rate × Avg Win) - (Loss Rate × Avg Loss)
+    avgWin: number;      // Average winning trade (₹)
+    avgLoss: number;     // Average losing trade (₹)
 }
 
 export interface BacktestMetrics {
@@ -434,9 +436,12 @@ export class BacktestEngine {
         const sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0;
         const avgSharpePerPeriod = sharpeRatio / Math.sqrt(numPeriods);
 
-        // Calculate expectancy: average profit per trade
-        const expectancy = totalPnl / trades.length;
-        const avgExpectancyPerPeriod = expectancy; // Same value per period, represents avg per trade
+        // Calculate expectancy using full formula: (Win Rate × Avg Win) - (Loss Rate × Avg Loss)
+        const avgWin = winningTrades.length > 0 ? grossProfit / winningTrades.length : 0;
+        const avgLoss = losingTrades.length > 0 ? grossLoss / losingTrades.length : 0;
+        const winRateDecimal = winningTrades.length / trades.length;
+        const lossRateDecimal = 1 - winRateDecimal;
+        const expectancy = (winRateDecimal * avgWin) - (lossRateDecimal * avgLoss);
 
         return {
             return: parseFloat(avgReturnPerPeriod.toFixed(2)),
@@ -445,7 +450,9 @@ export class BacktestEngine {
             winRate: parseFloat(winRate.toFixed(2)),
             totalTrades: avgTradesPerPeriod,
             profitFactor: parseFloat(Math.min(profitFactor, 99.99).toFixed(2)),
-            expectancy: parseFloat(avgExpectancyPerPeriod.toFixed(2)),
+            expectancy: parseFloat(expectancy.toFixed(2)),
+            avgWin: parseFloat(avgWin.toFixed(2)),
+            avgLoss: parseFloat(avgLoss.toFixed(2)),
         };
     }
 
@@ -490,8 +497,12 @@ export class BacktestEngine {
             ? (annualizedAvgReturn - this.RISK_FREE_RATE) / annualizedStdDev
             : 0;
 
-        // Calculate expectancy: average profit per trade
-        const expectancy = totalPnl / trades.length;
+        // Calculate expectancy using full formula: (Win Rate × Avg Win) - (Loss Rate × Avg Loss)
+        const avgWin = winningTrades.length > 0 ? grossProfit / winningTrades.length : 0;
+        const avgLoss = losingTrades.length > 0 ? grossLoss / losingTrades.length : 0;
+        const winRateDecimal = winningTrades.length / trades.length;
+        const lossRateDecimal = 1 - winRateDecimal;
+        const expectancy = (winRateDecimal * avgWin) - (lossRateDecimal * avgLoss);
 
         return {
             return: parseFloat(totalReturn.toFixed(2)),
@@ -501,6 +512,8 @@ export class BacktestEngine {
             totalTrades: trades.length,
             profitFactor: parseFloat(Math.min(profitFactor, 99.99).toFixed(2)),
             expectancy: parseFloat(expectancy.toFixed(2)),
+            avgWin: parseFloat(avgWin.toFixed(2)),
+            avgLoss: parseFloat(avgLoss.toFixed(2)),
         };
     }
 
@@ -566,6 +579,8 @@ export class BacktestEngine {
             totalTrades: 0,
             profitFactor: 0,
             expectancy: 0,
+            avgWin: 0,
+            avgLoss: 0,
         };
     }
 }
