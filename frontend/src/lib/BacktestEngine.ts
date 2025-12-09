@@ -234,9 +234,11 @@ export class BacktestEngine {
      * Logic:
      * - EMA crossover establishes trend zone (not for direct entry)
      * - ADX > threshold confirms trending market
+     * - Volume > average confirms institutional participation
      * - Bullish candlestick pattern in bullish zone = BUY signal
      * - Exit: ADX < threshold + Bearish candlestick pattern = SELL signal
      * - Only one position at a time
+     * - Max 3 trades per day to avoid overtrading
      */
     private generateCandlestickPatternSignals(
         ohlcData: CandlestickData[],
@@ -247,10 +249,13 @@ export class BacktestEngine {
         const fastPeriod = config.params.fastPeriod || 3;
         const slowPeriod = config.params.slowPeriod || 15;
         const adxPeriod = config.params.adxPeriod || 14;
-        const adxThreshold = config.params.adxThreshold || 20;
+        const adxThreshold = config.params.adxThreshold || 25;  // Increased from 20 to 25
+        const volumePeriod = 20;  // Average volume lookback
+        const volumeMultiplier = 1.2;  // Require 1.2x average volume
+        const maxTradesPerDay = 3;  // Limit trades per day
 
         // Minimum data required
-        const minBars = Math.max(slowPeriod, adxPeriod * 2) + 5;
+        const minBars = Math.max(slowPeriod, adxPeriod * 2, volumePeriod) + 5;
         if (ohlcData.length < minBars) {
             console.warn(`⚠️ [EMA+Candlestick] Not enough data: ${ohlcData.length} bars, need ${minBars}`);
             return signals;
@@ -260,6 +265,7 @@ export class BacktestEngine {
         const highs = ohlcData.map(bar => bar.high);
         const lows = ohlcData.map(bar => bar.low);
         const closes = ohlcData.map(bar => bar.close);
+        const volumes = ohlcData.map(bar => (bar as any).volume || 0);
 
         // Track EMA values for trend zone
         let emaFast: number | undefined;
@@ -268,11 +274,23 @@ export class BacktestEngine {
         // Track if we're in a position (to allow only one position at a time)
         let inPosition = false;
 
+        // Track trades per day
+        let currentDay = '';
+        let todayTradeCount = 0;
+
         for (let i = minBars; i < ohlcData.length; i++) {
             const bar = ohlcData[i];
+            const barTime = bar.time as number;
             const pricesUpToNow = closes.slice(0, i + 1);
             const highsUpToNow = highs.slice(0, i + 1);
             const lowsUpToNow = lows.slice(0, i + 1);
+
+            // Track daily trade count
+            const barDate = new Date(barTime * 1000).toISOString().split('T')[0];
+            if (barDate !== currentDay) {
+                currentDay = barDate;
+                todayTradeCount = 0;  // Reset for new day
+            }
 
             // Calculate EMAs
             emaFast = IndicatorCalculator.calculateEMA(pricesUpToNow, fastPeriod, emaFast) ?? undefined;
@@ -291,6 +309,15 @@ export class BacktestEngine {
             const trendStrong = adx >= adxThreshold;
             const trendWeak = adx < adxThreshold;
 
+            // Calculate volume filter
+            const currentVolume = volumes[i];
+            const recentVolumes = volumes.slice(Math.max(0, i - volumePeriod), i);
+            const avgVolume = recentVolumes.length > 0
+                ? recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length
+                : 0;
+            const volumeAboveAvg = currentVolume > avgVolume * volumeMultiplier;
+            const volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 0;
+
             // Get last 3 candles for pattern detection
             const recentCandles: CandleData[] = [];
             for (let j = Math.max(0, i - 2); j <= i; j++) {
@@ -307,13 +334,23 @@ export class BacktestEngine {
                 [`EMA ${fastPeriod}`]: parseFloat(emaFast.toFixed(4)),
                 [`EMA ${slowPeriod}`]: parseFloat(emaSlow.toFixed(4)),
                 'ADX': parseFloat(adx.toFixed(2)),
+                'Volume Ratio': parseFloat(volumeRatio.toFixed(2)),
                 'Trend Zone': bullishZone ? 'Bullish' : 'Bearish',
                 'Trend Strong': trendStrong,
+                'Volume OK': volumeAboveAvg,
+                'Day Trades': todayTradeCount,
             };
 
             // === ENTRY LOGIC ===
-            // Only enter if: 1) Not in position, 2) Bullish zone, 3) ADX >= threshold, 4) Bullish pattern
-            if (!inPosition && bullishZone && trendStrong && config.direction !== 'short') {
+            // Only enter if: 
+            // 1) Not in position
+            // 2) Bullish zone (EMA fast > slow)
+            // 3) ADX >= threshold (strong trend)
+            // 4) Volume above average (institutional participation)
+            // 5) Bullish candlestick pattern
+            // 6) Haven't exceeded max trades per day
+            if (!inPosition && bullishZone && trendStrong && volumeAboveAvg &&
+                todayTradeCount < maxTradesPerDay && config.direction !== 'short') {
                 const bullishPattern = CandlestickPatterns.detectBullishPattern(recentCandles);
 
                 if (bullishPattern) {
@@ -329,11 +366,13 @@ export class BacktestEngine {
                         }
                     });
                     inPosition = true;
+                    todayTradeCount++;
                 }
             }
 
             // === EXIT LOGIC ===
             // Only exit if: 1) In position, 2) (Bearish zone OR ADX < threshold), 3) Bearish pattern
+            // Note: Exit logic does NOT check volume or trade limit - we always want to exit when signal triggers
             if (inPosition && (bearishZone || trendWeak)) {
                 const bearishPattern = CandlestickPatterns.detectBearishPattern(recentCandles);
 
@@ -354,7 +393,7 @@ export class BacktestEngine {
             }
         }
 
-        console.log(`📊 [EMA+Candlestick] Generated ${signals.length} signals from ${ohlcData.length} bars`);
+        console.log(`📊 [EMA+Candlestick] Generated ${signals.length} signals from ${ohlcData.length} bars (ADX>=${adxThreshold}, Vol>${volumeMultiplier}x, Max ${maxTradesPerDay}/day)`);
         return signals;
     }
 

@@ -136,7 +136,7 @@ const availableStrategies: AvailableStrategy[] = [
       name: 'EMA + Candlestick Pattern',
       type: 'ema-candlestick',
       direction: 'long',
-      params: { fastPeriod: 3, slowPeriod: 15, adxPeriod: 14, adxThreshold: 20 }
+      params: { fastPeriod: 3, slowPeriod: 15, adxPeriod: 14, adxThreshold: 25 }
     }
   },
 ];
