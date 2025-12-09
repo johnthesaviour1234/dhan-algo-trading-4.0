@@ -361,100 +361,184 @@ export class BacktestEngine {
     }
 
     /**
+     * Group trades by time period
+     */
+    private groupTradesByPeriod(trades: BacktestTrade[], periodType: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'): Map<string, BacktestTrade[]> {
+        const groups = new Map<string, BacktestTrade[]>();
+
+        for (const trade of trades) {
+            // Parse entry date to get the period key
+            const dateMatch = trade.entryDate.match(/(\d+)\s+(\w+)\s+(\d+)/);
+            if (!dateMatch) continue;
+
+            const day = parseInt(dateMatch[1]);
+            const monthStr = dateMatch[2];
+            const year = parseInt(dateMatch[3]);
+
+            const monthMap: Record<string, number> = {
+                'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+                'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+            };
+            const month = monthMap[monthStr] ?? 0;
+            const date = new Date(year, month, day);
+
+            let periodKey: string;
+            switch (periodType) {
+                case 'daily':
+                    periodKey = `${year}-${month}-${day}`;
+                    break;
+                case 'weekly':
+                    // Get week number
+                    const startOfYear = new Date(year, 0, 1);
+                    const weekNum = Math.ceil(((date.getTime() - startOfYear.getTime()) / 86400000 + startOfYear.getDay() + 1) / 7);
+                    periodKey = `${year}-W${weekNum}`;
+                    break;
+                case 'monthly':
+                    periodKey = `${year}-${month}`;
+                    break;
+                case 'quarterly':
+                    const quarter = Math.floor(month / 3) + 1;
+                    periodKey = `${year}-Q${quarter}`;
+                    break;
+                case 'yearly':
+                    periodKey = `${year}`;
+                    break;
+            }
+
+            if (!groups.has(periodKey)) {
+                groups.set(periodKey, []);
+            }
+            groups.get(periodKey)!.push(trade);
+        }
+
+        return groups;
+    }
+
+    /**
+     * Calculate metrics for a single period's trades
+     */
+    private calculateSinglePeriodMetrics(trades: BacktestTrade[]): MetricData | null {
+        if (trades.length === 0) return null;
+
+        const winningTrades = trades.filter(t => t.pnl > 0);
+        const losingTrades = trades.filter(t => t.pnl <= 0);
+
+        const totalPnl = trades.reduce((sum, t) => sum + t.pnl, 0);
+        const initialCapital = trades[0].entryPrice * trades[0].quantity;
+        const totalReturn = initialCapital > 0 ? (totalPnl / initialCapital) * 100 : 0;
+
+        const winRate = (winningTrades.length / trades.length) * 100;
+        const lossRate = 100 - winRate;
+
+        const grossProfit = winningTrades.reduce((sum, t) => sum + t.pnl, 0);
+        const grossLoss = Math.abs(losingTrades.reduce((sum, t) => sum + t.pnl, 0));
+        const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
+
+        const avgWin = winningTrades.length > 0 ? grossProfit / winningTrades.length : 0;
+        const avgLoss = losingTrades.length > 0 ? grossLoss / losingTrades.length : 0;
+
+        const winRateDecimal = winningTrades.length / trades.length;
+        const lossRateDecimal = 1 - winRateDecimal;
+        const expectancy = (winRateDecimal * avgWin) - (lossRateDecimal * avgLoss);
+
+        const maxDrawdown = this.calculateMaxDrawdown(trades, initialCapital);
+
+        // Sharpe ratio for this period
+        const returns = trades.map(t => t.pnlPercent / 100);
+        const avgReturn = returns.length > 0 ? returns.reduce((sum, r) => sum + r, 0) / returns.length : 0;
+        const stdDev = returns.length > 1 ? Math.sqrt(
+            returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length
+        ) : 0;
+        const sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0;
+
+        return {
+            return: totalReturn,
+            sharpeRatio: sharpeRatio,
+            maxDrawdown: maxDrawdown,
+            winRate: winRate,
+            lossRate: lossRate,
+            totalTrades: trades.length,
+            profitFactor: Math.min(profitFactor, 99.99),
+            expectancy: expectancy,
+            avgWin: avgWin,
+            avgLoss: avgLoss,
+        };
+    }
+
+    /**
      * Calculate all metrics for all timeframes
-     * Daily to Yearly: Average metrics per period
+     * Daily to Yearly: Group trades by period, calculate per-period metrics, then average
      * Overall: Complete raw calculation
      */
-    private calculateAllMetrics(trades: BacktestTrade[], ohlcData: CandlestickData[]): BacktestMetrics {
+    private calculateAllMetrics(trades: BacktestTrade[], _ohlcData: CandlestickData[]): BacktestMetrics {
         if (trades.length === 0) {
             return this.getEmptyMetrics();
         }
 
-        // Get date range from data
-        const startDate = new Date((ohlcData[0].time as number) * 1000);
-        const endDate = new Date((ohlcData[ohlcData.length - 1].time as number) * 1000);
-        const tradingDays = this.calculateTradingDays(startDate, endDate);
-
-        // Calculate number of each period type
-        const numPeriods = {
-            daily: tradingDays,
-            weekly: Math.max(1, Math.floor(tradingDays / 5)),
-            monthly: Math.max(1, Math.floor(tradingDays / 22)),
-            quarterly: Math.max(1, Math.floor(tradingDays / 66)),
-            yearly: Math.max(1, Math.floor(tradingDays / 252)),
-        };
-
         return {
-            daily: this.calculateAverageMetrics(trades, numPeriods.daily),
-            weekly: this.calculateAverageMetrics(trades, numPeriods.weekly),
-            monthly: this.calculateAverageMetrics(trades, numPeriods.monthly),
-            quarterly: this.calculateAverageMetrics(trades, numPeriods.quarterly),
-            yearly: this.calculateAverageMetrics(trades, numPeriods.yearly),
+            daily: this.calculatePeriodAveragedMetrics(trades, 'daily'),
+            weekly: this.calculatePeriodAveragedMetrics(trades, 'weekly'),
+            monthly: this.calculatePeriodAveragedMetrics(trades, 'monthly'),
+            quarterly: this.calculatePeriodAveragedMetrics(trades, 'quarterly'),
+            yearly: this.calculatePeriodAveragedMetrics(trades, 'yearly'),
             overall: this.calculateOverallMetrics(trades), // Raw totals, no averaging
         };
     }
 
     /**
-     * Calculate AVERAGE metrics for a timeframe (daily, weekly, monthly, etc.)
-     * Returns metrics averaged over the number of periods
+     * Calculate metrics by grouping trades into periods and averaging the period metrics
      */
-    private calculateAverageMetrics(trades: BacktestTrade[], numPeriods: number): MetricData {
-        if (trades.length === 0 || numPeriods === 0) {
+    private calculatePeriodAveragedMetrics(trades: BacktestTrade[], periodType: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'): MetricData {
+        if (trades.length === 0) {
             return this.getEmptyMetricData();
         }
 
-        // Total PnL and return
-        const totalPnl = trades.reduce((sum, t) => sum + t.pnl, 0);
-        const initialCapital = trades[0].entryPrice * trades[0].quantity;
-        const totalReturn = (totalPnl / initialCapital) * 100;
+        // Group trades by period
+        const periodGroups = this.groupTradesByPeriod(trades, periodType);
 
-        // Average return per period
-        const avgReturnPerPeriod = totalReturn / numPeriods;
+        if (periodGroups.size === 0) {
+            return this.getEmptyMetricData();
+        }
 
-        // Calculate win rate (same across all timeframes)
-        const winningTrades = trades.filter(t => t.pnl > 0);
-        const losingTrades = trades.filter(t => t.pnl <= 0);
-        const winRate = (winningTrades.length / trades.length) * 100;
+        // Calculate metrics for each period
+        const periodMetrics: MetricData[] = [];
+        for (const [, periodTrades] of periodGroups) {
+            const metrics = this.calculateSinglePeriodMetrics(periodTrades);
+            if (metrics) {
+                periodMetrics.push(metrics);
+            }
+        }
 
-        // Calculate profit factor (same across all timeframes)
-        const grossProfit = winningTrades.reduce((sum, t) => sum + t.pnl, 0);
-        const grossLoss = Math.abs(losingTrades.reduce((sum, t) => sum + t.pnl, 0));
-        const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
+        if (periodMetrics.length === 0) {
+            return this.getEmptyMetricData();
+        }
 
-        // Average max drawdown per period
-        const maxDrawdown = this.calculateMaxDrawdown(trades, initialCapital);
-        const avgMaxDrawdown = maxDrawdown / numPeriods;
-
-        // Average trades per period
-        const avgTradesPerPeriod = Math.round(trades.length / numPeriods);
-
-        // Calculate Sharpe Ratio (averaged per period)
-        const returns = trades.map(t => t.pnlPercent / 100);
-        const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
-        const stdDev = Math.sqrt(
-            returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length
-        );
-        const sharpeRatio = stdDev > 0 ? avgReturn / stdDev : 0;
-        const avgSharpePerPeriod = sharpeRatio / Math.sqrt(numPeriods);
-
-        // Calculate expectancy using full formula: (Win Rate × Avg Win) - (Loss Rate × Avg Loss)
-        const avgWin = winningTrades.length > 0 ? grossProfit / winningTrades.length : 0;
-        const avgLoss = losingTrades.length > 0 ? grossLoss / losingTrades.length : 0;
-        const winRateDecimal = winningTrades.length / trades.length;
-        const lossRateDecimal = 1 - winRateDecimal;
-        const expectancy = (winRateDecimal * avgWin) - (lossRateDecimal * avgLoss);
+        // Average all the period metrics
+        const numPeriods = periodMetrics.length;
+        const avgMetrics: MetricData = {
+            return: periodMetrics.reduce((sum, m) => sum + m.return, 0) / numPeriods,
+            sharpeRatio: periodMetrics.reduce((sum, m) => sum + m.sharpeRatio, 0) / numPeriods,
+            maxDrawdown: periodMetrics.reduce((sum, m) => sum + m.maxDrawdown, 0) / numPeriods,
+            winRate: periodMetrics.reduce((sum, m) => sum + m.winRate, 0) / numPeriods,
+            lossRate: periodMetrics.reduce((sum, m) => sum + m.lossRate, 0) / numPeriods,
+            totalTrades: Math.round(periodMetrics.reduce((sum, m) => sum + m.totalTrades, 0) / numPeriods),
+            profitFactor: periodMetrics.reduce((sum, m) => sum + m.profitFactor, 0) / numPeriods,
+            expectancy: periodMetrics.reduce((sum, m) => sum + m.expectancy, 0) / numPeriods,
+            avgWin: periodMetrics.reduce((sum, m) => sum + m.avgWin, 0) / numPeriods,
+            avgLoss: periodMetrics.reduce((sum, m) => sum + m.avgLoss, 0) / numPeriods,
+        };
 
         return {
-            return: parseFloat(avgReturnPerPeriod.toFixed(2)),
-            sharpeRatio: parseFloat(avgSharpePerPeriod.toFixed(2)),
-            maxDrawdown: parseFloat(avgMaxDrawdown.toFixed(2)),
-            winRate: parseFloat(winRate.toFixed(2)),
-            lossRate: parseFloat((100 - winRate).toFixed(2)),
-            totalTrades: avgTradesPerPeriod,
-            profitFactor: parseFloat(Math.min(profitFactor, 99.99).toFixed(2)),
-            expectancy: parseFloat(expectancy.toFixed(2)),
-            avgWin: parseFloat(avgWin.toFixed(2)),
-            avgLoss: parseFloat(avgLoss.toFixed(2)),
+            return: parseFloat(avgMetrics.return.toFixed(2)),
+            sharpeRatio: parseFloat(avgMetrics.sharpeRatio.toFixed(2)),
+            maxDrawdown: parseFloat(avgMetrics.maxDrawdown.toFixed(2)),
+            winRate: parseFloat(avgMetrics.winRate.toFixed(2)),
+            lossRate: parseFloat(avgMetrics.lossRate.toFixed(2)),
+            totalTrades: avgMetrics.totalTrades,
+            profitFactor: parseFloat(Math.min(avgMetrics.profitFactor, 99.99).toFixed(2)),
+            expectancy: parseFloat(avgMetrics.expectancy.toFixed(2)),
+            avgWin: parseFloat(avgMetrics.avgWin.toFixed(2)),
+            avgLoss: parseFloat(avgMetrics.avgLoss.toFixed(2)),
         };
     }
 
