@@ -1,4 +1,5 @@
 import { toast } from '../components/Toast';
+import { MarketHours } from '../utils/MarketHours';
 
 interface Trade {
     id: string;
@@ -38,13 +39,23 @@ export class TestingStrategy {
         console.log('🚀 Testing strategy started');
         this.isRunning = true;
 
-        // Execute first BUY immediately
-        this.executeBuy();
+        // Execute first BUY immediately (if within market hours)
+        if (MarketHours.isWithinTradingHours()) {
+            this.executeBuy();
+        } else {
+            console.log(`⏳ [Testing] Outside market hours (${MarketHours.getCurrentISTTimeString()} IST) - waiting...`);
+        }
 
         // Then generate BUY signal every 1 minute (60000ms)
         this.buyInterval = setInterval(() => {
             if (this.currentPosition === null && this.isRunning) {
-                this.executeBuy();
+                // Check market hours before trading
+                if (MarketHours.isWithinTradingHours()) {
+                    this.executeBuy();
+                } else if (MarketHours.isForceCloseTime() && this.currentPosition !== null) {
+                    console.log('⏰ [Testing] FORCE CLOSE at 2:30 PM IST');
+                    this.executeSell();
+                }
             }
         }, 60000); // 1 minute
     }

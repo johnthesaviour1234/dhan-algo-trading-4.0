@@ -1,5 +1,6 @@
 import { toast } from '../components/Toast';
 import { IndicatorCalculator } from '../utils/IndicatorCalculator';
+import { MarketHours } from '../utils/MarketHours';
 import type { CalculationRow } from '../types/CalculationRow';
 import type { OHLCCandle } from '../types/Strategy';
 
@@ -159,6 +160,20 @@ export class EmaLongStrategy {
     private checkForSignals(candle: OHLCCandle) {
         if (this.ema3 === null || this.ema15 === null) {
             console.log('   ⏳ Waiting for EMAs to initialize');
+            return;
+        }
+
+        // Check for force close at 2:30 PM IST
+        if (MarketHours.isForceCloseTime() && this.currentPosition !== null) {
+            console.log('⏰ [EMA 3/15 Long] FORCE CLOSE at 2:30 PM IST');
+            this.updateLastSignal('SELL');
+            this.executeSell(candle.close);
+            return;
+        }
+
+        // Only trade during market hours (9:30 AM - 2:30 PM IST)
+        if (!MarketHours.isWithinTradingHours()) {
+            console.log(`   ⏳ [EMA 3/15 Long] Outside market hours (${MarketHours.getCurrentISTTimeString()} IST)`);
             return;
         }
 

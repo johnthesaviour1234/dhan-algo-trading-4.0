@@ -1,4 +1,5 @@
 import type { Trade } from '../components/BacktestingPanel';
+import { MarketHours } from '../utils/MarketHours';
 
 type PlaceOrderFunc = (type: 'BUY' | 'SELL', qty: number) => Promise<{ price?: number }>;
 type OnTradeFunc = (trade: Trade) => void;
@@ -30,15 +31,27 @@ export class TestingStrategy4 {
         this.isRunning = true;
         console.log('🚀 Testing-4 strategy started (SHORT - 2min interval)');
 
-        // Execute first SELL immediately
+        // Execute first SELL immediately (if within market hours)
         setTimeout(() => {
-            this.executeSell();
+            if (MarketHours.isWithinTradingHours()) {
+                this.executeSell();
+            } else {
+                console.log(`⏳ [Testing-4] Outside market hours (${MarketHours.getCurrentISTTimeString()} IST) - waiting...`);
+            }
         }, 0);
 
         // Then execute SELL every 2 minutes (120,000ms)
         this.intervalId = setInterval(() => {
             if (this.isRunning && !this.currentPosition) {
-                this.executeSell();
+                // Check market hours before trading
+                if (MarketHours.isWithinTradingHours()) {
+                    this.executeSell();
+                }
+            }
+            // Force close at 2:30 PM
+            if (MarketHours.isForceCloseTime() && this.currentPosition !== null) {
+                console.log('⏰ [Testing-4] FORCE CLOSE at 2:30 PM IST');
+                this.executeBuy();
             }
         }, 120000); // 2 minutes
     }
