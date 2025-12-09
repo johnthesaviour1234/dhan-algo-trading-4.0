@@ -297,10 +297,6 @@ export class BacktestEngine {
         let emaFast: number | undefined;
         let emaSlow: number | undefined;
 
-        // State for fast rolling EMA calculation
-        let fastState: { ema: number; emaBuffer: number[]; bufferSum: number } | null = null;
-        let slowState: { ema: number; emaBuffer: number[]; bufferSum: number } | null = null;
-
         // Track if we're in a position (to allow only one position at a time)
         let inPosition = false;
 
@@ -308,22 +304,9 @@ export class BacktestEngine {
         let currentDay = '';
         let todayTradeCount = 0;
 
-        // Pre-calculate initial EMAs to warm up the state
-        const warmupEnd = minBars;
-        if (warmupEnd > 0) {
-            const warmupPrices = closes.slice(0, warmupEnd);
-            const fastResult = IndicatorCalculator.calculateSmoothedEMAFast(warmupPrices, fastPeriod, 9, undefined);
-            const slowResult = IndicatorCalculator.calculateSmoothedEMAFast(warmupPrices, slowPeriod, 9, undefined);
-            fastState = fastResult.state;
-            slowState = slowResult.state;
-        }
-
         for (let i = minBars; i < ohlcData.length; i++) {
             const bar = ohlcData[i];
             const barTime = bar.time as number;
-
-            // Use ONLY the new price for rolling calculation (O(1) per bar!)
-            const currentPrice = closes[i];
 
             // Track daily trade count
             const barDate = new Date(barTime * 1000).toISOString().split('T')[0];
@@ -332,23 +315,16 @@ export class BacktestEngine {
                 todayTradeCount = 0;  // Reset for new day
             }
 
-            // Calculate EMAs with fast rolling method
-            // Pass single-element array with current price for rolling update
-            const fastResult = IndicatorCalculator.calculateSmoothedEMAFast(
-                [currentPrice], fastPeriod, 9, fastState ?? undefined
-            );
-            const slowResult = IndicatorCalculator.calculateSmoothedEMAFast(
-                [currentPrice], slowPeriod, 9, slowState ?? undefined
-            );
+            // Calculate smoothed EMAs - use simple O(n) version that works correctly
+            const pricesUpToNow = closes.slice(0, i + 1);
+            const smoothedFast = IndicatorCalculator.calculateSmoothedEMA(pricesUpToNow, fastPeriod, 9);
+            const smoothedSlow = IndicatorCalculator.calculateSmoothedEMA(pricesUpToNow, slowPeriod, 9);
 
-            fastState = fastResult.state;
-            slowState = slowResult.state;
-
-            if (fastResult.value === null || slowResult.value === null) continue;
+            if (smoothedFast === null || smoothedSlow === null) continue;
 
             // Update tracking variables for indicator display
-            emaFast = fastResult.value;
-            emaSlow = slowResult.value;
+            emaFast = smoothedFast;
+            emaSlow = smoothedSlow;
 
             // Determine trend zone
             const bullishZone = emaFast > emaSlow;
