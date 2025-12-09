@@ -346,10 +346,10 @@ export class BacktestEngine {
             // 1) Not in position
             // 2) Bullish zone (EMA fast > slow)
             // 3) ADX >= threshold (strong trend)
-            // 4) Volume above average (institutional participation)
-            // 5) Bullish candlestick pattern
-            // 6) Haven't exceeded max trades per day
-            if (!inPosition && bullishZone && trendStrong && volumeAboveAvg &&
+            // 4) Bullish candlestick pattern
+            // 5) Haven't exceeded max trades per day
+            // Note: Volume filter removed - was blocking all trades
+            if (!inPosition && bullishZone && trendStrong &&
                 todayTradeCount < maxTradesPerDay && config.direction !== 'short') {
                 const bullishPattern = CandlestickPatterns.detectBullishPattern(recentCandles);
 
