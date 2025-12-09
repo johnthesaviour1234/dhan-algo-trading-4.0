@@ -130,6 +130,10 @@ export function WebSocketDataPanel() {
   // Track previous candle time to detect minute boundary changes
   const prevCandleTimeRef = useRef<number | null>(null);
 
+  // Track current live candle in a ref to avoid infinite loops
+  const liveCandleRef = useRef(liveCandle);
+  liveCandleRef.current = liveCandle;
+
   // Process LTP updates through aggregator
   useEffect(() => {
     if (ltpData) {
@@ -155,19 +159,20 @@ export function WebSocketDataPanel() {
         timeISO: new Date(candle.time * 1000).toISOString()
       });
 
-      // DETECT MINUTE BOUNDARY CHANGE
+      // DETECT MINUTE BOUNDARY CHANGE - use ref to avoid infinite loop
+      const currentLiveCandle = liveCandleRef.current;
       if (prevCandleTimeRef.current !== null &&
         candle.time !== prevCandleTimeRef.current &&
-        liveCandle) {
+        currentLiveCandle) {
 
         // Save the COMPLETED candle to historical data
         const completedCandle: CandlestickData = {
-          time: liveCandle.time as Time,
-          open: liveCandle.open,
-          high: liveCandle.high,
-          low: liveCandle.low,
-          close: liveCandle.close,
-          volume: liveCandle.volume // Include volume!
+          time: currentLiveCandle.time as Time,
+          open: currentLiveCandle.open,
+          high: currentLiveCandle.high,
+          low: currentLiveCandle.low,
+          close: currentLiveCandle.close,
+          volume: currentLiveCandle.volume // Include volume!
         };
 
         setHistoricalBars(prev => {
@@ -183,7 +188,7 @@ export function WebSocketDataPanel() {
 
           console.log('💾 Saved completed candle:', {
             time: new Date((completedCandle.time as number) * 1000).toISOString(),
-            volume: liveCandle.volume,
+            volume: currentLiveCandle.volume,
             total: updated.length
           });
 
@@ -197,7 +202,7 @@ export function WebSocketDataPanel() {
       // Update context (will trigger chart update)
       setLiveCandle(candle);
     }
-  }, [ltpData, setLiveCandle, liveCandle, setHistoricalBars]);
+  }, [ltpData, setLiveCandle, setHistoricalBars]);  // Removed liveCandle from deps
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
