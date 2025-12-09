@@ -1,5 +1,6 @@
 import { CandlestickData } from 'lightweight-charts';
 import { IndicatorCalculator } from '../utils/IndicatorCalculator';
+import { CandlestickPatterns, CandleData } from '../utils/CandlestickPatterns';
 import { calculateIntradayTradeCosts, TradeCosts } from '../utils/BrokerageCalculator';
 
 /**
@@ -52,7 +53,7 @@ export interface BacktestMetrics {
 
 export interface StrategyConfig {
     name: string;
-    type: 'sma-crossover' | 'ema-crossover' | 'rsi' | 'macd' | 'bollinger';
+    type: 'sma-crossover' | 'ema-crossover' | 'ema-candlestick' | 'rsi' | 'macd' | 'bollinger';
     direction: 'long' | 'short' | 'both';
     params: {
         fastPeriod?: number;
@@ -60,6 +61,8 @@ export interface StrategyConfig {
         rsiPeriod?: number;
         rsiBuyThreshold?: number;
         rsiSellThreshold?: number;
+        adxPeriod?: number;       // ADX period for trend strength filter
+        adxThreshold?: number;    // ADX threshold (default 20)
     };
 }
 
@@ -138,6 +141,8 @@ export class BacktestEngine {
             case 'sma-crossover':
             case 'ema-crossover':
                 return this.generateMACrossoverSignals(ohlcData, closePrices, config);
+            case 'ema-candlestick':
+                return this.generateCandlestickPatternSignals(ohlcData, config);
             default:
                 console.warn(`⚠️ [Backtest] Strategy type ${config.type} not yet implemented`);
                 return [];
@@ -222,6 +227,137 @@ export class BacktestEngine {
 
         return signals;
     }
+
+    /**
+     * Generate signals for EMA + Candlestick Pattern strategy
+     * 
+     * Logic:
+     * - EMA crossover establishes trend zone (not for direct entry)
+     * - ADX > threshold confirms trending market
+     * - Bullish candlestick pattern in bullish zone = BUY signal
+     * - Exit: ADX < threshold + Bearish candlestick pattern = SELL signal
+     * - Only one position at a time
+     */
+    private generateCandlestickPatternSignals(
+        ohlcData: CandlestickData[],
+        config: StrategyConfig
+    ): { time: number; type: 'BUY' | 'SELL'; price: number; indicators: Record<string, number | boolean | string> }[] {
+        const signals: { time: number; type: 'BUY' | 'SELL'; price: number; indicators: Record<string, number | boolean | string> }[] = [];
+
+        const fastPeriod = config.params.fastPeriod || 3;
+        const slowPeriod = config.params.slowPeriod || 15;
+        const adxPeriod = config.params.adxPeriod || 14;
+        const adxThreshold = config.params.adxThreshold || 20;
+
+        // Minimum data required
+        const minBars = Math.max(slowPeriod, adxPeriod * 2) + 5;
+        if (ohlcData.length < minBars) {
+            console.warn(`⚠️ [EMA+Candlestick] Not enough data: ${ohlcData.length} bars, need ${minBars}`);
+            return signals;
+        }
+
+        // Extract OHLC arrays for indicator calculation
+        const highs = ohlcData.map(bar => bar.high);
+        const lows = ohlcData.map(bar => bar.low);
+        const closes = ohlcData.map(bar => bar.close);
+
+        // Track EMA values for trend zone
+        let emaFast: number | undefined;
+        let emaSlow: number | undefined;
+
+        // Track if we're in a position (to allow only one position at a time)
+        let inPosition = false;
+
+        for (let i = minBars; i < ohlcData.length; i++) {
+            const bar = ohlcData[i];
+            const pricesUpToNow = closes.slice(0, i + 1);
+            const highsUpToNow = highs.slice(0, i + 1);
+            const lowsUpToNow = lows.slice(0, i + 1);
+
+            // Calculate EMAs
+            emaFast = IndicatorCalculator.calculateEMA(pricesUpToNow, fastPeriod, emaFast) ?? undefined;
+            emaSlow = IndicatorCalculator.calculateEMA(pricesUpToNow, slowPeriod, emaSlow) ?? undefined;
+
+            if (emaFast === undefined || emaSlow === undefined) continue;
+
+            // Determine trend zone
+            const bullishZone = emaFast > emaSlow;
+            const bearishZone = emaFast < emaSlow;
+
+            // Calculate ADX for trend strength
+            const adx = IndicatorCalculator.calculateADX(highsUpToNow, lowsUpToNow, pricesUpToNow, adxPeriod);
+            if (adx === null) continue;
+
+            const trendStrong = adx >= adxThreshold;
+            const trendWeak = adx < adxThreshold;
+
+            // Get last 3 candles for pattern detection
+            const recentCandles: CandleData[] = [];
+            for (let j = Math.max(0, i - 2); j <= i; j++) {
+                recentCandles.push({
+                    open: ohlcData[j].open,
+                    high: ohlcData[j].high,
+                    low: ohlcData[j].low,
+                    close: ohlcData[j].close
+                });
+            }
+
+            // Base indicators for logging
+            const indicators: Record<string, number | boolean | string> = {
+                [`EMA ${fastPeriod}`]: parseFloat(emaFast.toFixed(4)),
+                [`EMA ${slowPeriod}`]: parseFloat(emaSlow.toFixed(4)),
+                'ADX': parseFloat(adx.toFixed(2)),
+                'Trend Zone': bullishZone ? 'Bullish' : 'Bearish',
+                'Trend Strong': trendStrong,
+            };
+
+            // === ENTRY LOGIC ===
+            // Only enter if: 1) Not in position, 2) Bullish zone, 3) ADX >= threshold, 4) Bullish pattern
+            if (!inPosition && bullishZone && trendStrong && config.direction !== 'short') {
+                const bullishPattern = CandlestickPatterns.detectBullishPattern(recentCandles);
+
+                if (bullishPattern) {
+                    signals.push({
+                        time: bar.time as number,
+                        type: 'BUY',
+                        price: bar.close,
+                        indicators: {
+                            ...indicators,
+                            'Entry Pattern': bullishPattern.pattern,
+                            'Pattern Strength': bullishPattern.strength,
+                            'Signal': 'BUY'
+                        }
+                    });
+                    inPosition = true;
+                }
+            }
+
+            // === EXIT LOGIC ===
+            // Only exit if: 1) In position, 2) (Bearish zone OR ADX < threshold), 3) Bearish pattern
+            if (inPosition && (bearishZone || trendWeak)) {
+                const bearishPattern = CandlestickPatterns.detectBearishPattern(recentCandles);
+
+                if (bearishPattern) {
+                    signals.push({
+                        time: bar.time as number,
+                        type: 'SELL',
+                        price: bar.close,
+                        indicators: {
+                            ...indicators,
+                            'Exit Pattern': bearishPattern.pattern,
+                            'Pattern Strength': bearishPattern.strength,
+                            'Signal': 'SELL'
+                        }
+                    });
+                    inPosition = false;
+                }
+            }
+        }
+
+        console.log(`📊 [EMA+Candlestick] Generated ${signals.length} signals from ${ohlcData.length} bars`);
+        return signals;
+    }
+
 
     /**
      * Simulate trades from signals

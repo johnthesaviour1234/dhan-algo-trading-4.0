@@ -128,6 +128,17 @@ const availableStrategies: AvailableStrategy[] = [
       params: { fastPeriod: 12, slowPeriod: 26 }
     }
   },
+  {
+    id: '7',
+    name: 'EMA + Candlestick Pattern',
+    type: 'pattern',
+    engineConfig: {
+      name: 'EMA + Candlestick Pattern',
+      type: 'ema-candlestick',
+      direction: 'long',
+      params: { fastPeriod: 3, slowPeriod: 15, adxPeriod: 14, adxThreshold: 20 }
+    }
+  },
 ];
 
 // Symbol configuration for backtesting (same as chart)
