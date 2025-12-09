@@ -292,11 +292,15 @@ export class BacktestEngine {
                 todayTradeCount = 0;  // Reset for new day
             }
 
-            // Calculate EMAs
-            emaFast = IndicatorCalculator.calculateEMA(pricesUpToNow, fastPeriod, emaFast) ?? undefined;
-            emaSlow = IndicatorCalculator.calculateEMA(pricesUpToNow, slowPeriod, emaSlow) ?? undefined;
+            // Calculate EMAs with SMA(9) smoothing to match TradingView settings
+            const smoothedFast = IndicatorCalculator.calculateSmoothedEMA(pricesUpToNow, fastPeriod, 9);
+            const smoothedSlow = IndicatorCalculator.calculateSmoothedEMA(pricesUpToNow, slowPeriod, 9);
 
-            if (emaFast === undefined || emaSlow === undefined) continue;
+            if (smoothedFast === null || smoothedSlow === null) continue;
+
+            // Update tracking variables for indicator display
+            emaFast = smoothedFast;
+            emaSlow = smoothedSlow;
 
             // Determine trend zone
             const bullishZone = emaFast > emaSlow;

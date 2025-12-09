@@ -59,6 +59,52 @@ export class IndicatorCalculator {
     }
 
     /**
+     * Calculate EMA with secondary SMA smoothing (matches TradingView settings)
+     * 
+     * TradingView's EMA indicator with "Smoothing Line: SMA" applies a secondary
+     * SMA smoothing on top of the EMA values.
+     * 
+     * @param prices - Array of close prices
+     * @param emaPeriod - EMA period (e.g., 3 or 15)
+     * @param smoothingPeriod - SMA smoothing period (default 9 as per TradingView)
+     * @returns Smoothed EMA value or null
+     */
+    static calculateSmoothedEMA(
+        prices: number[],
+        emaPeriod: number,
+        smoothingPeriod: number = 9
+    ): number | null {
+        // Need enough data for EMA + smoothing
+        if (prices.length < emaPeriod + smoothingPeriod) {
+            return null;
+        }
+
+        // First calculate EMA values for each bar
+        const emaValues: number[] = [];
+        let previousEMA: number | undefined;
+
+        for (let i = emaPeriod - 1; i < prices.length; i++) {
+            const pricesUpToNow = prices.slice(0, i + 1);
+            const ema = this.calculateEMA(pricesUpToNow, emaPeriod, previousEMA);
+            if (ema !== null) {
+                emaValues.push(ema);
+                previousEMA = ema;
+            }
+        }
+
+        // Then apply SMA smoothing on the EMA values
+        if (emaValues.length < smoothingPeriod) {
+            return null;
+        }
+
+        // Return SMA of last 'smoothingPeriod' EMA values
+        const recentEMAs = emaValues.slice(-smoothingPeriod);
+        const smoothedEMA = recentEMAs.reduce((acc, val) => acc + val, 0) / smoothingPeriod;
+
+        return smoothedEMA;
+    }
+
+    /**
      * Calculate both EMA values needed for crossover detection
      */
     static calculateEMACrossover(
