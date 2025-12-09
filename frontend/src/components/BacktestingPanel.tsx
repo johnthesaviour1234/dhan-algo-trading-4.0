@@ -130,13 +130,24 @@ const availableStrategies: AvailableStrategy[] = [
   },
   {
     id: '7',
-    name: 'EMA + Candlestick Pattern',
+    name: 'EMA 3/15 + Candlestick',
     type: 'pattern',
     engineConfig: {
-      name: 'EMA + Candlestick Pattern',
+      name: 'EMA 3/15 + Candlestick',
       type: 'ema-candlestick',
       direction: 'long',
       params: { fastPeriod: 3, slowPeriod: 15, adxPeriod: 14, adxThreshold: 25 }
+    }
+  },
+  {
+    id: '8',
+    name: 'EMA 15/60 + Candlestick',
+    type: 'pattern',
+    engineConfig: {
+      name: 'EMA 15/60 + Candlestick',
+      type: 'ema-candlestick',
+      direction: 'long',
+      params: { fastPeriod: 15, slowPeriod: 60, adxPeriod: 14, adxThreshold: 25 }
     }
   },
 ];
