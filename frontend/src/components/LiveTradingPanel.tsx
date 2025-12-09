@@ -848,13 +848,22 @@ function generateInitialMetrics(): StrategyPerformance['metrics'] {
 }
 
 function generateRandomMetricData(): MetricData {
+  const winRate = parseFloat((Math.random() * 40 + 40).toFixed(2));
+  const avgWin = parseFloat((Math.random() * 100 + 10).toFixed(2));
+  const avgLoss = parseFloat((Math.random() * 50 + 5).toFixed(2));
+  const lossRate = parseFloat((100 - winRate).toFixed(2));
+  const expectancy = parseFloat(((winRate / 100 * avgWin) - (lossRate / 100 * avgLoss)).toFixed(2));
   return {
     return: parseFloat((Math.random() * 40 - 10).toFixed(2)),
     sharpeRatio: parseFloat((Math.random() * 3).toFixed(2)),
     maxDrawdown: parseFloat((Math.random() * -30).toFixed(2)),
-    winRate: parseFloat((Math.random() * 40 + 40).toFixed(2)),
+    winRate,
+    lossRate,
     totalTrades: Math.floor(Math.random() * 100 + 10),
     profitFactor: parseFloat((Math.random() * 2 + 0.5).toFixed(2)),
+    expectancy,
+    avgWin,
+    avgLoss,
   };
 }
 
@@ -863,13 +872,23 @@ function updateMetrics(currentMetrics: StrategyPerformance['metrics']): Strategy
 
   // Slightly update each timeframe
   (['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'overall'] as const).forEach(timeframe => {
+    const winRate = parseFloat(Math.max(0, Math.min(100, currentMetrics[timeframe].winRate + (Math.random() * 4 - 2))).toFixed(2));
+    const lossRate = parseFloat((100 - winRate).toFixed(2));
+    const avgWin = parseFloat(Math.max(0, (currentMetrics[timeframe].avgWin || 50) + (Math.random() * 2 - 1)).toFixed(2));
+    const avgLoss = parseFloat(Math.max(0, (currentMetrics[timeframe].avgLoss || 25) + (Math.random() * 1 - 0.5)).toFixed(2));
+    const expectancy = parseFloat(((winRate / 100 * avgWin) - (lossRate / 100 * avgLoss)).toFixed(2));
+
     updatedMetrics[timeframe] = {
       return: parseFloat((currentMetrics[timeframe].return + (Math.random() * 2 - 1)).toFixed(2)),
       sharpeRatio: parseFloat((currentMetrics[timeframe].sharpeRatio + (Math.random() * 0.2 - 0.1)).toFixed(2)),
       maxDrawdown: parseFloat((currentMetrics[timeframe].maxDrawdown + (Math.random() * 1 - 0.5)).toFixed(2)),
-      winRate: parseFloat(Math.max(0, Math.min(100, currentMetrics[timeframe].winRate + (Math.random() * 4 - 2))).toFixed(2)),
+      winRate,
+      lossRate,
       totalTrades: currentMetrics[timeframe].totalTrades,
       profitFactor: parseFloat(Math.max(0, currentMetrics[timeframe].profitFactor + (Math.random() * 0.2 - 0.1)).toFixed(2)),
+      expectancy,
+      avgWin,
+      avgLoss,
     };
   });
 
@@ -1000,14 +1019,15 @@ function generateTrade(strategyName: string, entryDate: Date, exitDate: Date, in
 }
 
 function calculateCombinedMetrics(performanceData: StrategyPerformance[]): StrategyPerformance['metrics'] {
+  const emptyMetric: MetricData = { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 };
   if (performanceData.length === 0) {
     return {
-      daily: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
-      weekly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
-      monthly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
-      quarterly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
-      yearly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
-      overall: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, totalTrades: 0, profitFactor: 0 },
+      daily: emptyMetric,
+      weekly: emptyMetric,
+      monthly: emptyMetric,
+      quarterly: emptyMetric,
+      yearly: emptyMetric,
+      overall: emptyMetric,
     };
   }
 
@@ -1025,12 +1045,17 @@ function calculateCombinedMetrics(performanceData: StrategyPerformance[]): Strat
 
 function combineMetrics(metrics: MetricData[]): MetricData {
   const count = metrics.length;
+  const winRate = parseFloat((metrics.reduce((sum, m) => sum + m.winRate, 0) / count).toFixed(2));
   return {
     return: parseFloat((metrics.reduce((sum, m) => sum + m.return, 0) / count).toFixed(2)),
     sharpeRatio: parseFloat((metrics.reduce((sum, m) => sum + m.sharpeRatio, 0) / count).toFixed(2)),
     maxDrawdown: parseFloat(Math.min(...metrics.map(m => m.maxDrawdown)).toFixed(2)),
-    winRate: parseFloat((metrics.reduce((sum, m) => sum + m.winRate, 0) / count).toFixed(2)),
+    winRate,
+    lossRate: parseFloat((100 - winRate).toFixed(2)),
     totalTrades: metrics.reduce((sum, m) => sum + m.totalTrades, 0),
     profitFactor: parseFloat((metrics.reduce((sum, m) => sum + m.profitFactor, 0) / count).toFixed(2)),
+    expectancy: parseFloat((metrics.reduce((sum, m) => sum + m.expectancy, 0) / count).toFixed(2)),
+    avgWin: parseFloat((metrics.reduce((sum, m) => sum + m.avgWin, 0) / count).toFixed(2)),
+    avgLoss: parseFloat((metrics.reduce((sum, m) => sum + m.avgLoss, 0) / count).toFixed(2)),
   };
 }
