@@ -267,9 +267,39 @@ export class BacktestEngine {
         const closes = ohlcData.map(bar => bar.close);
         const volumes = ohlcData.map(bar => (bar as any).volume || 0);
 
+        // PRE-COMPUTE ADX for all bars to avoid O(n²) complexity
+        console.log('📊 Pre-computing ADX values...');
+        const adxValues: (number | null)[] = new Array(ohlcData.length).fill(null);
+        for (let i = adxPeriod * 3; i < ohlcData.length; i++) {
+            adxValues[i] = IndicatorCalculator.calculateADX(
+                highs.slice(0, i + 1),
+                lows.slice(0, i + 1),
+                closes.slice(0, i + 1),
+                adxPeriod
+            );
+        }
+        console.log('✅ ADX pre-computation complete');
+
+        // Pre-compute volume averages using rolling window
+        const volumeAvgs: number[] = new Array(ohlcData.length).fill(0);
+        let volumeSum = 0;
+        for (let i = 0; i < ohlcData.length; i++) {
+            volumeSum += volumes[i];
+            if (i >= volumePeriod) {
+                volumeSum -= volumes[i - volumePeriod];
+                volumeAvgs[i] = volumeSum / volumePeriod;
+            } else if (i > 0) {
+                volumeAvgs[i] = volumeSum / (i + 1);
+            }
+        }
+
         // Track EMA values for trend zone
         let emaFast: number | undefined;
         let emaSlow: number | undefined;
+
+        // State for fast rolling EMA calculation
+        let fastState: { ema: number; emaBuffer: number[]; bufferSum: number } | null = null;
+        let slowState: { ema: number; emaBuffer: number[]; bufferSum: number } | null = null;
 
         // Track if we're in a position (to allow only one position at a time)
         let inPosition = false;
@@ -278,12 +308,22 @@ export class BacktestEngine {
         let currentDay = '';
         let todayTradeCount = 0;
 
+        // Pre-calculate initial EMAs to warm up the state
+        const warmupEnd = minBars;
+        if (warmupEnd > 0) {
+            const warmupPrices = closes.slice(0, warmupEnd);
+            const fastResult = IndicatorCalculator.calculateSmoothedEMAFast(warmupPrices, fastPeriod, 9, undefined);
+            const slowResult = IndicatorCalculator.calculateSmoothedEMAFast(warmupPrices, slowPeriod, 9, undefined);
+            fastState = fastResult.state;
+            slowState = slowResult.state;
+        }
+
         for (let i = minBars; i < ohlcData.length; i++) {
             const bar = ohlcData[i];
             const barTime = bar.time as number;
-            const pricesUpToNow = closes.slice(0, i + 1);
-            const highsUpToNow = highs.slice(0, i + 1);
-            const lowsUpToNow = lows.slice(0, i + 1);
+
+            // Use ONLY the new price for rolling calculation (O(1) per bar!)
+            const currentPrice = closes[i];
 
             // Track daily trade count
             const barDate = new Date(barTime * 1000).toISOString().split('T')[0];
@@ -292,33 +332,38 @@ export class BacktestEngine {
                 todayTradeCount = 0;  // Reset for new day
             }
 
-            // Calculate EMAs with SMA(9) smoothing to match TradingView settings
-            const smoothedFast = IndicatorCalculator.calculateSmoothedEMA(pricesUpToNow, fastPeriod, 9);
-            const smoothedSlow = IndicatorCalculator.calculateSmoothedEMA(pricesUpToNow, slowPeriod, 9);
+            // Calculate EMAs with fast rolling method
+            // Pass single-element array with current price for rolling update
+            const fastResult = IndicatorCalculator.calculateSmoothedEMAFast(
+                [currentPrice], fastPeriod, 9, fastState ?? undefined
+            );
+            const slowResult = IndicatorCalculator.calculateSmoothedEMAFast(
+                [currentPrice], slowPeriod, 9, slowState ?? undefined
+            );
 
-            if (smoothedFast === null || smoothedSlow === null) continue;
+            fastState = fastResult.state;
+            slowState = slowResult.state;
+
+            if (fastResult.value === null || slowResult.value === null) continue;
 
             // Update tracking variables for indicator display
-            emaFast = smoothedFast;
-            emaSlow = smoothedSlow;
+            emaFast = fastResult.value;
+            emaSlow = slowResult.value;
 
             // Determine trend zone
             const bullishZone = emaFast > emaSlow;
             const bearishZone = emaFast < emaSlow;
 
-            // Calculate ADX for trend strength
-            const adx = IndicatorCalculator.calculateADX(highsUpToNow, lowsUpToNow, pricesUpToNow, adxPeriod);
+            // Use PRE-COMPUTED ADX value (O(1) lookup instead of O(n) calculation)
+            const adx = adxValues[i];
             if (adx === null) continue;
 
             const trendStrong = adx >= adxThreshold;
             const trendWeak = adx < adxThreshold;
 
-            // Calculate volume filter
+            // Use PRE-COMPUTED volume average (O(1) lookup)
             const currentVolume = volumes[i];
-            const recentVolumes = volumes.slice(Math.max(0, i - volumePeriod), i);
-            const avgVolume = recentVolumes.length > 0
-                ? recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length
-                : 0;
+            const avgVolume = volumeAvgs[i];
             const volumeAboveAvg = currentVolume > avgVolume * volumeMultiplier;
             const volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 0;
 

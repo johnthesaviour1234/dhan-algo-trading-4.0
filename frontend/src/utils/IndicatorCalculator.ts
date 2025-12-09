@@ -60,48 +60,108 @@ export class IndicatorCalculator {
 
     /**
      * Calculate EMA with secondary SMA smoothing (matches TradingView settings)
+     * OPTIMIZED VERSION - O(n) instead of O(n²)
      * 
-     * TradingView's EMA indicator with "Smoothing Line: SMA" applies a secondary
-     * SMA smoothing on top of the EMA values.
-     * 
-     * @param prices - Array of close prices
+     * @param prices - Array of close prices (FULL array up to current bar)
      * @param emaPeriod - EMA period (e.g., 3 or 15)
-     * @param smoothingPeriod - SMA smoothing period (default 9 as per TradingView)
-     * @returns Smoothed EMA value or null
+     * @param smoothingPeriod - SMA smoothing period (default 9)
+     * @param state - Optional state object for rolling calculation
+     * @returns { value: smoothed EMA, state: updated state for next call }
+     */
+    static calculateSmoothedEMAFast(
+        prices: number[],
+        emaPeriod: number,
+        smoothingPeriod: number = 9,
+        state?: { ema: number; emaBuffer: number[]; bufferSum: number }
+    ): { value: number | null; state: { ema: number; emaBuffer: number[]; bufferSum: number } | null } {
+        if (prices.length < emaPeriod) {
+            return { value: null, state: null };
+        }
+
+        const currentPrice = prices[prices.length - 1];
+        const k = 2 / (emaPeriod + 1);
+
+        let ema: number;
+        let emaBuffer: number[];
+        let bufferSum: number;
+
+        if (!state) {
+            // First call - calculate initial EMA using SMA seed
+            const initialPrices = prices.slice(0, emaPeriod);
+            ema = initialPrices.reduce((a, b) => a + b, 0) / emaPeriod;
+
+            // Calculate remaining EMAs up to current
+            for (let i = emaPeriod; i < prices.length; i++) {
+                ema = prices[i] * k + ema * (1 - k);
+            }
+
+            emaBuffer = [ema];
+            bufferSum = ema;
+        } else {
+            // Rolling calculation
+            ema = currentPrice * k + state.ema * (1 - k);
+            emaBuffer = [...state.emaBuffer, ema];
+            bufferSum = state.bufferSum + ema;
+
+            // Keep only last smoothingPeriod values
+            if (emaBuffer.length > smoothingPeriod) {
+                bufferSum -= emaBuffer.shift()!;
+            }
+        }
+
+        // Return smoothed value if we have enough buffer
+        const value = emaBuffer.length >= smoothingPeriod
+            ? bufferSum / smoothingPeriod
+            : null;
+
+        return {
+            value,
+            state: { ema, emaBuffer, bufferSum }
+        };
+    }
+
+    /**
+     * Simple smoothed EMA for backward compatibility (still O(n) per call but no state)
+     * Use calculateSmoothedEMAFast with state for best performance in loops
      */
     static calculateSmoothedEMA(
         prices: number[],
         emaPeriod: number,
         smoothingPeriod: number = 9
     ): number | null {
-        // Need enough data for EMA + smoothing
-        if (prices.length < emaPeriod + smoothingPeriod) {
+        if (prices.length < emaPeriod + smoothingPeriod - 1) {
             return null;
         }
 
-        // First calculate EMA values for each bar
-        const emaValues: number[] = [];
-        let previousEMA: number | undefined;
+        // Calculate EMA for each bar efficiently
+        const k = 2 / (emaPeriod + 1);
 
-        for (let i = emaPeriod - 1; i < prices.length; i++) {
-            const pricesUpToNow = prices.slice(0, i + 1);
-            const ema = this.calculateEMA(pricesUpToNow, emaPeriod, previousEMA);
-            if (ema !== null) {
-                emaValues.push(ema);
-                previousEMA = ema;
-            }
+        // Initialize with SMA
+        let ema = prices.slice(0, emaPeriod).reduce((a, b) => a + b, 0) / emaPeriod;
+
+        // Build EMA buffer for last smoothingPeriod values
+        const emaBuffer: number[] = [];
+
+        // Start from where we can begin collecting buffer
+        const startIdx = Math.max(emaPeriod, prices.length - smoothingPeriod);
+
+        // Calculate EMAs up to startIdx first
+        for (let i = emaPeriod; i < startIdx; i++) {
+            ema = prices[i] * k + ema * (1 - k);
         }
 
-        // Then apply SMA smoothing on the EMA values
-        if (emaValues.length < smoothingPeriod) {
+        // Collect last smoothingPeriod EMA values
+        for (let i = startIdx; i < prices.length; i++) {
+            ema = prices[i] * k + ema * (1 - k);
+            emaBuffer.push(ema);
+        }
+
+        // Return SMA of buffer
+        if (emaBuffer.length < smoothingPeriod) {
             return null;
         }
 
-        // Return SMA of last 'smoothingPeriod' EMA values
-        const recentEMAs = emaValues.slice(-smoothingPeriod);
-        const smoothedEMA = recentEMAs.reduce((acc, val) => acc + val, 0) / smoothingPeriod;
-
-        return smoothedEMA;
+        return emaBuffer.reduce((a, b) => a + b, 0) / smoothingPeriod;
     }
 
     /**
