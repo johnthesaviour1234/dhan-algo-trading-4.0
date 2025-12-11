@@ -2,6 +2,7 @@ import { CandlestickData } from 'lightweight-charts';
 import { IndicatorCalculator } from '../utils/IndicatorCalculator';
 import { CandlestickPatterns, CandleData } from '../utils/CandlestickPatterns';
 import { calculateIntradayTradeCosts, TradeCosts } from '../utils/BrokerageCalculator';
+import { HTFAggregator } from '../utils/HTFAggregator';
 
 /**
  * Backtest Engine
@@ -27,6 +28,8 @@ export interface BacktestTrade {
     // Detailed cost breakdown
     costs: TradeCosts;
     indicators: Record<string, number | boolean | string>;
+    // Risk management
+    exitReason: 'Signal' | 'StopLoss' | 'Target' | 'TrailingStop' | 'MarketClose';
 }
 
 export interface MetricData {
@@ -53,7 +56,7 @@ export interface BacktestMetrics {
 
 export interface StrategyConfig {
     name: string;
-    type: 'sma-crossover' | 'ema-crossover' | 'ema-candlestick' | 'rsi' | 'macd' | 'bollinger';
+    type: 'sma-crossover' | 'ema-crossover' | 'ema-candlestick' | 'ema-scalping' | 'rsi' | 'macd' | 'bollinger';
     direction: 'long' | 'short' | 'both';
     params: {
         fastPeriod?: number;
@@ -63,6 +66,11 @@ export interface StrategyConfig {
         rsiSellThreshold?: number;
         adxPeriod?: number;       // ADX period for trend strength filter
         adxThreshold?: number;    // ADX threshold (default 20)
+        // Risk Management
+        stopLossPercent?: number;     // Default 1%
+        targetProfitPercent?: number; // Default 2% (1:2 ratio)
+        trailingStopPercent?: number; // Default 1%
+        useTrailingStop?: boolean;    // Enable trailing stop (default true)
     };
 }
 
@@ -71,6 +79,11 @@ interface Position {
     entryPrice: number;
     direction: 'Long' | 'Short';
     indicators: Record<string, number | boolean | string>;
+    // Risk management levels
+    stopLossPrice: number;
+    targetPrice: number;
+    highestPrice: number;  // For trailing stop
+    lowestPrice: number;   // For short positions
 }
 
 export class BacktestEngine {
@@ -143,6 +156,8 @@ export class BacktestEngine {
                 return this.generateMACrossoverSignals(ohlcData, closePrices, config);
             case 'ema-candlestick':
                 return this.generateCandlestickPatternSignals(ohlcData, config);
+            case 'ema-scalping':
+                return this.generateEmaScalpingSignals(ohlcData, config);
             default:
                 console.warn(`⚠️ [Backtest] Strategy type ${config.type} not yet implemented`);
                 return [];
@@ -166,26 +181,22 @@ export class BacktestEngine {
         let prevFast: number | null = null;
         let prevSlow: number | null = null;
 
-        // For EMA we need to track previous values
-        let emaFast: number | undefined;
-        let emaSlow: number | undefined;
+        // PRE-COMPUTE all indicators in O(n) single pass
+        console.log(`📊 [MA Crossover] Pre-computing ${isEMA ? 'EMA' : 'SMA'} values for ${ohlcData.length} bars...`);
+        const fastValues = isEMA
+            ? IndicatorCalculator.calculateAllEMAs(closePrices, fastPeriod)
+            : this.calculateAllSMAs(closePrices, fastPeriod);
+        const slowValues = isEMA
+            ? IndicatorCalculator.calculateAllEMAs(closePrices, slowPeriod)
+            : this.calculateAllSMAs(closePrices, slowPeriod);
+        console.log(`✅ Pre-computation complete`);
 
         for (let i = slowPeriod; i < ohlcData.length; i++) {
-            const pricesUpToNow = closePrices.slice(0, i + 1);
             const bar = ohlcData[i];
 
-            let currentFast: number | null;
-            let currentSlow: number | null;
-
-            if (isEMA) {
-                emaFast = IndicatorCalculator.calculateEMA(pricesUpToNow, fastPeriod, emaFast) ?? undefined;
-                emaSlow = IndicatorCalculator.calculateEMA(pricesUpToNow, slowPeriod, emaSlow) ?? undefined;
-                currentFast = emaFast ?? null;
-                currentSlow = emaSlow ?? null;
-            } else {
-                currentFast = IndicatorCalculator.calculateSMA(pricesUpToNow, fastPeriod);
-                currentSlow = IndicatorCalculator.calculateSMA(pricesUpToNow, slowPeriod);
-            }
+            // O(1) lookup instead of O(n) calculation
+            const currentFast = fastValues[i];
+            const currentSlow = slowValues[i];
 
             if (currentFast === null || currentSlow === null) continue;
 
@@ -267,18 +278,19 @@ export class BacktestEngine {
         const closes = ohlcData.map(bar => bar.close);
         const volumes = ohlcData.map(bar => (bar as any).volume || 0);
 
-        // PRE-COMPUTE ADX for all bars to avoid O(n²) complexity
-        console.log('📊 Pre-computing ADX values...');
-        const adxValues: (number | null)[] = new Array(ohlcData.length).fill(null);
-        for (let i = adxPeriod * 3; i < ohlcData.length; i++) {
-            adxValues[i] = IndicatorCalculator.calculateADX(
-                highs.slice(0, i + 1),
-                lows.slice(0, i + 1),
-                closes.slice(0, i + 1),
-                adxPeriod
-            );
-        }
-        console.log('✅ ADX pre-computation complete');
+        // PRE-COMPUTE all indicators in O(n) SINGLE PASS (optimized)
+        console.log(`📊 Pre-computing indicators for ${ohlcData.length} bars...`);
+        const startTime = performance.now();
+
+        // O(n) ADX calculation - replaces O(n²) loop
+        const adxValues = IndicatorCalculator.calculateAllADX(highs, lows, closes, adxPeriod);
+
+        // O(n) Smoothed EMA calculations
+        const smoothedFastValues = IndicatorCalculator.calculateAllSmoothedEMAs(closes, fastPeriod, 9);
+        const smoothedSlowValues = IndicatorCalculator.calculateAllSmoothedEMAs(closes, slowPeriod, 9);
+
+        const elapsedMs = (performance.now() - startTime).toFixed(1);
+        console.log(`✅ Pre-computation complete in ${elapsedMs}ms`);
 
         // Pre-compute volume averages using rolling window
         const volumeAvgs: number[] = new Array(ohlcData.length).fill(0);
@@ -292,6 +304,20 @@ export class BacktestEngine {
                 volumeAvgs[i] = volumeSum / (i + 1);
             }
         }
+
+        // ========== HTF TREND FILTER PRE-COMPUTATION ==========
+        // Aggregate 1-min bars to higher timeframes
+        const htfEMAPeriod = 21;  // EMA period for HTF trend
+
+        // Hourly bars (60 minutes)
+        const hourlyBars = HTFAggregator.aggregate(ohlcData, 60);
+        const hourlyEmas = HTFAggregator.calculateHTFEMAs(hourlyBars, htfEMAPeriod);
+        console.log(`📊 [HTF] Aggregated ${hourlyBars.length} hourly bars`);
+
+        // Daily bars (300 minutes = 5 hours for 9:30-2:30 trading window)
+        const dailyBars = HTFAggregator.aggregate(ohlcData, 300);
+        const dailyEmas = HTFAggregator.calculateHTFEMAs(dailyBars, htfEMAPeriod);
+        console.log(`📊 [HTF] Aggregated ${dailyBars.length} daily bars`);
 
         // Track EMA values for trend zone
         let emaFast: number | undefined;
@@ -315,10 +341,9 @@ export class BacktestEngine {
                 todayTradeCount = 0;  // Reset for new day
             }
 
-            // Calculate smoothed EMAs - use simple O(n) version that works correctly
-            const pricesUpToNow = closes.slice(0, i + 1);
-            const smoothedFast = IndicatorCalculator.calculateSmoothedEMA(pricesUpToNow, fastPeriod, 9);
-            const smoothedSlow = IndicatorCalculator.calculateSmoothedEMA(pricesUpToNow, slowPeriod, 9);
+            // O(1) LOOKUP from pre-computed arrays (was O(n) per bar = O(n²) total)
+            const smoothedFast = smoothedFastValues[i];
+            const smoothedSlow = smoothedSlowValues[i];
 
             if (smoothedFast === null || smoothedSlow === null) continue;
 
@@ -343,6 +368,32 @@ export class BacktestEngine {
             const volumeAboveAvg = currentVolume > avgVolume * volumeMultiplier;
             const volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 0;
 
+            // ========== HTF TREND CHECK (LOOK-AHEAD BIAS PREVENTION) ==========
+            // Get LAST COMPLETED HTF candles - never use in-progress candles
+            const lastHourlyIdx = HTFAggregator.getLastCompletedBarIndex(hourlyBars, barTime);
+            const lastDailyIdx = HTFAggregator.getLastCompletedBarIndex(dailyBars, barTime);
+
+            // Check hourly trend: close > EMA(21)
+            let hourlyTrendUp = false;
+            let hourlyInfo = 'N/A';
+            if (lastHourlyIdx >= 0 && hourlyEmas[lastHourlyIdx] !== null) {
+                const hourlyBar = hourlyBars[lastHourlyIdx];
+                hourlyTrendUp = hourlyBar.close > hourlyEmas[lastHourlyIdx]!;
+                hourlyInfo = hourlyTrendUp ? 'Bullish' : 'Bearish';
+            }
+
+            // Check daily trend: close > EMA(21)
+            let dailyTrendUp = false;
+            let dailyInfo = 'N/A';
+            if (lastDailyIdx >= 0 && dailyEmas[lastDailyIdx] !== null) {
+                const dailyBar = dailyBars[lastDailyIdx];
+                dailyTrendUp = dailyBar.close > dailyEmas[lastDailyIdx]!;
+                dailyInfo = dailyTrendUp ? 'Bullish' : 'Bearish';
+            }
+
+            // Combined HTF filter: both hourly and daily must be bullish
+            const htfTrendUp = hourlyTrendUp && dailyTrendUp;
+
             // Get last 3 candles for pattern detection
             const recentCandles: CandleData[] = [];
             for (let j = Math.max(0, i - 2); j <= i; j++) {
@@ -364,6 +415,9 @@ export class BacktestEngine {
                 'Trend Strong': trendStrong,
                 'Volume OK': volumeAboveAvg,
                 'Day Trades': todayTradeCount,
+                'Hourly Trend': hourlyInfo,
+                'Daily Trend': dailyInfo,
+                'HTF OK': htfTrendUp,
             };
 
             // === ENTRY LOGIC ===
@@ -373,8 +427,8 @@ export class BacktestEngine {
             // 3) ADX >= threshold (strong trend)
             // 4) Bullish candlestick pattern
             // 5) Haven't exceeded max trades per day
-            // Note: Volume filter removed - was blocking all trades
-            if (!inPosition && bullishZone && trendStrong &&
+            // 6) HTF trend is bullish (hourly + daily)
+            if (!inPosition && bullishZone && trendStrong && htfTrendUp &&
                 todayTradeCount < maxTradesPerDay && config.direction !== 'short') {
                 const bullishPattern = CandlestickPatterns.detectBullishPattern(recentCandles);
 
@@ -422,10 +476,189 @@ export class BacktestEngine {
         return signals;
     }
 
+    /**
+     * Generate signals for EMA Scalping Strategy (8/13/21/34 EMAs + RSI + Volume)
+     * 
+     * Entry Conditions (BUY):
+     * 1. EMA Stacking: EMA8 > EMA13 > EMA21 > EMA34 (bullish trend)
+     * 2. Price pulls back to EMA13 or EMA21 (within 0.5%)
+     * 3. Bullish candle closes (close > open)
+     * 4. RSI(7) between 40-60 (not overbought/oversold)
+     * 5. Volume above 10-period average
+     * 
+     * Exit Conditions:
+     * - Price closes below EMA8 (trend break)
+     * - Target/Stop hit in simulateTrades
+     */
+    private generateEmaScalpingSignals(
+        ohlcData: CandlestickData[],
+        config: StrategyConfig
+    ): { time: number; type: 'BUY' | 'SELL'; price: number; indicators: Record<string, number | boolean | string> }[] {
+        const signals: { time: number; type: 'BUY' | 'SELL'; price: number; indicators: Record<string, number | boolean | string> }[] = [];
+
+        // Strategy parameters (with defaults)
+        const ema8Period = 8;
+        const ema13Period = 13;
+        const ema21Period = 21;
+        const ema34Period = 34;
+        const rsiPeriod = config.params.rsiPeriod || 7;
+        const rsiLow = 40;
+        const rsiHigh = 60;
+        const volumePeriod = 10;
+        const pullbackThreshold = 0.005;  // 0.5% - how close price must be to EMA13/21
+        const maxTradesPerDay = 5;
+
+        // Minimum data required
+        const minBars = Math.max(ema34Period, rsiPeriod) + 10;
+        if (ohlcData.length < minBars) {
+            console.warn(`⚠️ [EMA Scalping] Not enough data: ${ohlcData.length} bars, need ${minBars}`);
+            return signals;
+        }
+
+        // Extract arrays for indicator calculation
+        const closes = ohlcData.map(bar => bar.close);
+        const volumes = ohlcData.map(bar => (bar as any).volume || 0);
+
+        // ========== PRE-COMPUTE ALL INDICATORS IN O(n) SINGLE PASS ==========
+        console.log(`📊 [EMA Scalping] Pre-computing indicators for ${ohlcData.length} bars...`);
+        const startTime = performance.now();
+
+        // O(n) EMA calculations
+        const ema8Values = IndicatorCalculator.calculateAllEMAs(closes, ema8Period);
+        const ema13Values = IndicatorCalculator.calculateAllEMAs(closes, ema13Period);
+        const ema21Values = IndicatorCalculator.calculateAllEMAs(closes, ema21Period);
+        const ema34Values = IndicatorCalculator.calculateAllEMAs(closes, ema34Period);
+
+        // O(n) RSI calculation
+        const rsiValues = IndicatorCalculator.calculateAllRSIs(closes, rsiPeriod);
+
+        // O(n) Volume average using rolling window
+        const volumeAvgs: number[] = new Array(ohlcData.length).fill(0);
+        let volumeSum = 0;
+        for (let i = 0; i < ohlcData.length; i++) {
+            volumeSum += volumes[i];
+            if (i >= volumePeriod) {
+                volumeSum -= volumes[i - volumePeriod];
+                volumeAvgs[i] = volumeSum / volumePeriod;
+            } else if (i > 0) {
+                volumeAvgs[i] = volumeSum / (i + 1);
+            }
+        }
+
+        const elapsedMs = (performance.now() - startTime).toFixed(1);
+        console.log(`✅ [EMA Scalping] Pre-computation complete in ${elapsedMs}ms`);
+
+        // Track position state
+        let inPosition = false;
+        let currentDay = '';
+        let todayTradeCount = 0;
+
+        // ========== MAIN SIGNAL GENERATION LOOP ==========
+        for (let i = minBars; i < ohlcData.length; i++) {
+            const bar = ohlcData[i];
+            const barTime = bar.time as number;
+
+            // Track daily trade count
+            const barDate = new Date(barTime * 1000).toISOString().split('T')[0];
+            if (barDate !== currentDay) {
+                currentDay = barDate;
+                todayTradeCount = 0;
+            }
+
+            // O(1) lookup of pre-computed values
+            const ema8 = ema8Values[i];
+            const ema13 = ema13Values[i];
+            const ema21 = ema21Values[i];
+            const ema34 = ema34Values[i];
+            const rsi = rsiValues[i];
+            const currentVolume = volumes[i];
+            const avgVolume = volumeAvgs[i];
+
+            // Skip if any indicator is null
+            if (ema8 === null || ema13 === null || ema21 === null || ema34 === null || rsi === null) {
+                continue;
+            }
+
+            // Check conditions
+            const emaStacking = ema8 > ema13 && ema13 > ema21 && ema21 > ema34;  // Bullish stacking
+            const bearishStacking = ema8 < ema13 && ema13 < ema21 && ema21 < ema34;  // For exit
+
+            // Pullback: price is within 0.5% of EMA13 or EMA21
+            const distanceToEma13 = Math.abs(bar.close - ema13) / ema13;
+            const distanceToEma21 = Math.abs(bar.close - ema21) / ema21;
+            const isPullback = distanceToEma13 <= pullbackThreshold || distanceToEma21 <= pullbackThreshold;
+
+            const isBullishCandle = bar.close > bar.open;
+            const rsiInRange = rsi >= rsiLow && rsi <= rsiHigh;
+            // Volume check: if avgVolume is 0, skip volume filter (data not available)
+            const hasVolumeData = avgVolume > 0;
+            const volumeAboveAvg = !hasVolumeData || currentVolume > avgVolume;
+            const volumeRatio = avgVolume > 0 ? currentVolume / avgVolume : 1;
+
+            // Base indicators for logging
+            const indicators: Record<string, number | boolean | string> = {
+                'EMA 8': parseFloat(ema8.toFixed(4)),
+                'EMA 13': parseFloat(ema13.toFixed(4)),
+                'EMA 21': parseFloat(ema21.toFixed(4)),
+                'EMA 34': parseFloat(ema34.toFixed(4)),
+                'RSI': parseFloat(rsi.toFixed(2)),
+                'Volume Ratio': parseFloat(volumeRatio.toFixed(2)),
+                'EMA Stacking': emaStacking ? 'Bullish' : (bearishStacking ? 'Bearish' : 'Mixed'),
+                'Pullback': isPullback,
+                'Bullish Candle': isBullishCandle,
+                'RSI OK': rsiInRange,
+                'Volume OK': volumeAboveAvg,
+                'Has Volume': hasVolumeData,
+            };
+
+            // === ENTRY LOGIC ===
+            // Enter if: Not in position + EMA stacking + Pullback + Bullish candle + RSI in range + (Volume OK or no volume data)
+            if (!inPosition && emaStacking && isPullback && isBullishCandle &&
+                rsiInRange && volumeAboveAvg && todayTradeCount < maxTradesPerDay &&
+                config.direction !== 'short') {
+                signals.push({
+                    time: barTime,
+                    type: 'BUY',
+                    price: bar.close,
+                    indicators: {
+                        ...indicators,
+                        'Signal': 'BUY - Pullback Entry',
+                        'Day Trades': todayTradeCount + 1,
+                    }
+                });
+                inPosition = true;
+                todayTradeCount++;
+            }
+
+            // === EXIT LOGIC ===
+            // Exit if: In position + Price closes below EMA8 (trend break)
+            if (inPosition && bar.close < ema8) {
+                signals.push({
+                    time: barTime,
+                    type: 'SELL',
+                    price: bar.close,
+                    indicators: {
+                        ...indicators,
+                        'Signal': 'SELL - EMA8 Break',
+                        'Exit Reason': 'Price closed below EMA8',
+                    }
+                });
+                inPosition = false;
+            }
+        }
+
+        console.log(`📊 [EMA Scalping] Generated ${signals.length} signals from ${ohlcData.length} bars`);
+        return signals;
+    }
 
     /**
-     * Simulate trades from signals
-     * Uses the BrokerageCalculator for accurate intraday trading costs
+     * Simulate trades from signals with Stop Loss, Target Profit, and Trailing Stop
+     * 
+     * Logic:
+     * 1. On BUY signal: Open position with SL at -1%, TP at +2% (1:2 ratio)
+     * 2. For each subsequent bar: Check if SL/TP hit, update trailing stop
+     * 3. Trailing stop: When price makes new high, trail SL at 1% below it
+     * 4. Exit on: SL hit, TP hit, SELL signal, or Market Close
      */
     private simulateTrades(
         signals: { time: number; type: 'BUY' | 'SELL'; price: number; indicators: Record<string, number | boolean | string> }[],
@@ -437,111 +670,169 @@ export class BacktestEngine {
         let position: Position | null = null;
         let tradeCount = 0;
 
+        // Risk management parameters (defaults: 1% SL, 2% TP, 1% trailing)
+        const stopLossPercent = config.params.stopLossPercent ?? 0.01;
+        const targetProfitPercent = config.params.targetProfitPercent ?? 0.005;
+        const trailingStopPercent = config.params.trailingStopPercent ?? 0.01;
+        const useTrailingStop = config.params.useTrailingStop ?? true;
+
+        // Create a map of signals by time for quick lookup
+        const signalMap = new Map<number, { type: 'BUY' | 'SELL'; price: number; indicators: Record<string, number | boolean | string> }>();
         for (const signal of signals) {
-            // Only open new positions during market hours (9:30 AM - 2:30 PM IST)
-            if (signal.type === 'BUY' && position === null && this.isWithinMarketHours(signal.time)) {
-                // Open long position
-                position = {
-                    entryTime: signal.time,
-                    entryPrice: signal.price * (1 + this.SLIPPAGE_PERCENT), // Slippage on entry
-                    direction: 'Long',
-                    indicators: signal.indicators
-                };
-            } else if (signal.type === 'SELL' && position !== null && position.direction === 'Long') {
-                // Close long position
-                const exitPrice = signal.price * (1 - this.SLIPPAGE_PERCENT); // Slippage on exit
-                const grossPnl = (exitPrice - position.entryPrice) * quantity;
+            signalMap.set(signal.time, signal);
+        }
 
-                // Calculate all trading costs using the BrokerageCalculator
-                const costs = calculateIntradayTradeCosts({
-                    buyPrice: position.entryPrice,
-                    sellPrice: exitPrice,
-                    quantity,
-                    exchange: 'NSE'
-                });
+        // Helper to create trade record
+        const createTrade = (
+            exitTime: number,
+            exitPrice: number,
+            exitReason: BacktestTrade['exitReason'],
+            exitIndicators: Record<string, number | boolean | string> = {}
+        ): BacktestTrade => {
+            const pos = position!;
+            const grossPnl = pos.direction === 'Long'
+                ? (exitPrice - pos.entryPrice) * quantity
+                : (pos.entryPrice - exitPrice) * quantity;
 
-                const netPnl = grossPnl - costs.totalCost;
-                const pnlPercent = ((exitPrice - position.entryPrice) / position.entryPrice) * 100;
-                const slippage = position.entryPrice * this.SLIPPAGE_PERCENT + exitPrice * this.SLIPPAGE_PERCENT;
+            const costs = calculateIntradayTradeCosts({
+                buyPrice: pos.direction === 'Long' ? pos.entryPrice : exitPrice,
+                sellPrice: pos.direction === 'Long' ? exitPrice : pos.entryPrice,
+                quantity,
+                exchange: 'NSE'
+            });
 
-                const entryDate = new Date(position.entryTime * 1000);
-                const exitDate = new Date(signal.time * 1000);
-                const durationMs = exitDate.getTime() - entryDate.getTime();
-                const durationMinutes = Math.floor(durationMs / 60000);
+            const netPnl = grossPnl - costs.totalCost;
+            const pnlPercent = pos.direction === 'Long'
+                ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100
+                : ((pos.entryPrice - exitPrice) / pos.entryPrice) * 100;
+            const slippage = pos.entryPrice * this.SLIPPAGE_PERCENT + exitPrice * this.SLIPPAGE_PERCENT;
 
-                let duration: string;
-                if (durationMinutes < 60) {
-                    duration = `${durationMinutes}min`;
-                } else if (durationMinutes < 1440) {
-                    duration = `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}min`;
-                } else {
-                    const days = Math.floor(durationMinutes / 1440);
-                    duration = `${days} day${days > 1 ? 's' : ''}`;
-                }
+            const entryDate = new Date(pos.entryTime * 1000);
+            const exitDate = new Date(exitTime * 1000);
+            const durationMinutes = Math.floor((exitDate.getTime() - entryDate.getTime()) / 60000);
 
-                trades.push({
-                    id: `${config.name.replace(/\s+/g, '-').toLowerCase()}-${tradeCount++}`,
-                    entryDate: this.formatDateTime(entryDate),
-                    exitDate: this.formatDateTime(exitDate),
-                    direction: position.direction,
-                    entryPrice: parseFloat(position.entryPrice.toFixed(2)),
-                    exitPrice: parseFloat(exitPrice.toFixed(2)),
-                    quantity,
-                    grossPnl: parseFloat(grossPnl.toFixed(2)),
-                    pnl: parseFloat(netPnl.toFixed(2)),
-                    pnlPercent: parseFloat(pnlPercent.toFixed(2)),
-                    duration,
-                    signal: 'Buy',
-                    slippage: parseFloat(slippage.toFixed(2)),
-                    costs,
-                    indicators: {
-                        ...position.indicators,
-                        'Exit Indicators': JSON.stringify(signal.indicators)
+            let duration: string;
+            if (durationMinutes < 60) {
+                duration = `${durationMinutes}min`;
+            } else if (durationMinutes < 1440) {
+                duration = `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}min`;
+            } else {
+                const days = Math.floor(durationMinutes / 1440);
+                duration = `${days} day${days > 1 ? 's' : ''}`;
+            }
+
+            return {
+                id: `${config.name.replace(/\s+/g, '-').toLowerCase()}-${tradeCount++}`,
+                entryDate: this.formatDateTime(entryDate),
+                exitDate: this.formatDateTime(exitDate) + (exitReason !== 'Signal' ? ` (${exitReason})` : ''),
+                direction: pos.direction,
+                entryPrice: parseFloat(pos.entryPrice.toFixed(2)),
+                exitPrice: parseFloat(exitPrice.toFixed(2)),
+                quantity,
+                grossPnl: parseFloat(grossPnl.toFixed(2)),
+                pnl: parseFloat(netPnl.toFixed(2)),
+                pnlPercent: parseFloat(pnlPercent.toFixed(2)),
+                duration,
+                signal: pos.direction === 'Long' ? 'Buy' : 'Sell',
+                slippage: parseFloat(slippage.toFixed(2)),
+                costs,
+                indicators: {
+                    ...pos.indicators,
+                    'Stop Loss': parseFloat(pos.stopLossPrice.toFixed(2)),
+                    'Target': parseFloat(pos.targetPrice.toFixed(2)),
+                    'Highest Price': parseFloat(pos.highestPrice.toFixed(2)),
+                    ...exitIndicators
+                },
+                exitReason
+            };
+        };
+
+        // Iterate through all bars
+        for (let i = 0; i < ohlcData.length; i++) {
+            const bar = ohlcData[i];
+            const barTime = bar.time as number;
+
+            // Check if there's an open position to manage
+            if (position !== null) {
+                // === CHECK STOP LOSS / TARGET / TRAILING STOP ===
+
+                if (position.direction === 'Long') {
+                    // Check Stop Loss (hit if LOW <= SL price)
+                    if (bar.low <= position.stopLossPrice) {
+                        const exitPrice = position.stopLossPrice * (1 - this.SLIPPAGE_PERCENT);
+                        const reason: BacktestTrade['exitReason'] =
+                            position.highestPrice > position.entryPrice ? 'TrailingStop' : 'StopLoss';
+                        trades.push(createTrade(barTime, exitPrice, reason, { 'Exit Price': exitPrice }));
+                        position = null;
+                        continue;
                     }
-                });
 
-                position = null;
-            }
-        }
+                    // Check Target Profit (hit if HIGH >= Target price)
+                    if (bar.high >= position.targetPrice) {
+                        const exitPrice = position.targetPrice * (1 - this.SLIPPAGE_PERCENT);
+                        trades.push(createTrade(barTime, exitPrice, 'Target', { 'Exit Price': exitPrice }));
+                        position = null;
+                        continue;
+                    }
 
-        // Force close any open position at 2:30 PM (market close)
-        if (position !== null) {
-            for (const bar of ohlcData) {
-                const barTime = bar.time as number;
-                if (barTime > position.entryTime && this.isForceCloseTime(barTime)) {
+                    // Update Trailing Stop (if enabled and new high)
+                    if (useTrailingStop && bar.high > position.highestPrice) {
+                        position.highestPrice = bar.high;
+                        const newTrailingSL = position.highestPrice * (1 - trailingStopPercent);
+                        // Only trail UP, never down
+                        if (newTrailingSL > position.stopLossPrice) {
+                            position.stopLossPrice = newTrailingSL;
+                        }
+                    }
+                }
+
+                // Check for Market Close (force close at 2:30 PM)
+                if (this.isForceCloseTime(barTime)) {
                     const exitPrice = bar.close * (1 - this.SLIPPAGE_PERCENT);
-                    const grossPnl = (exitPrice - position.entryPrice) * quantity;
-                    const costs = calculateIntradayTradeCosts({ buyPrice: position.entryPrice, sellPrice: exitPrice, quantity, exchange: 'NSE' });
-                    const netPnl = grossPnl - costs.totalCost;
-                    const pnlPercent = ((exitPrice - position.entryPrice) / position.entryPrice) * 100;
-                    const slippage = position.entryPrice * this.SLIPPAGE_PERCENT + exitPrice * this.SLIPPAGE_PERCENT;
-                    const entryDate = new Date(position.entryTime * 1000);
-                    const exitDate = new Date(barTime * 1000);
-                    const durationMinutes = Math.floor((exitDate.getTime() - entryDate.getTime()) / 60000);
-                    const duration = durationMinutes < 60 ? `${durationMinutes}min` : `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}min`;
-                    trades.push({
-                        id: `${config.name.replace(/\s+/g, '-').toLowerCase()}-${tradeCount++}`,
-                        entryDate: this.formatDateTime(entryDate),
-                        exitDate: this.formatDateTime(exitDate) + ' (Force Close)',
-                        direction: position.direction,
-                        entryPrice: parseFloat(position.entryPrice.toFixed(2)),
-                        exitPrice: parseFloat(exitPrice.toFixed(2)),
-                        quantity,
-                        grossPnl: parseFloat(grossPnl.toFixed(2)),
-                        pnl: parseFloat(netPnl.toFixed(2)),
-                        pnlPercent: parseFloat(pnlPercent.toFixed(2)),
-                        duration,
-                        signal: 'Sell',
-                        slippage: parseFloat(slippage.toFixed(2)),
-                        costs,
-                        indicators: { ...position.indicators, 'Exit Reason': 'Market Close (2:30 PM)' }
-                    });
+                    trades.push(createTrade(barTime, exitPrice, 'MarketClose', { 'Exit Reason': 'Market Close (2:30 PM)' }));
                     position = null;
-                    break;
+                    continue;
+                }
+
+                // Check for SELL signal
+                const signal = signalMap.get(barTime);
+                if (signal && signal.type === 'SELL' && position.direction === 'Long') {
+                    const exitPrice = signal.price * (1 - this.SLIPPAGE_PERCENT);
+                    trades.push(createTrade(barTime, exitPrice, 'Signal', signal.indicators));
+                    position = null;
+                    continue;
                 }
             }
+
+            // === CHECK FOR NEW ENTRY ===
+            const signal = signalMap.get(barTime);
+            if (signal && signal.type === 'BUY' && position === null && this.isWithinMarketHours(barTime)) {
+                const entryPrice = signal.price * (1 + this.SLIPPAGE_PERCENT);
+
+                // Set SL at -stopLossPercent and TP at +targetProfitPercent
+                position = {
+                    entryTime: barTime,
+                    entryPrice: entryPrice,
+                    direction: 'Long',
+                    indicators: signal.indicators,
+                    stopLossPrice: entryPrice * (1 - stopLossPercent),
+                    targetPrice: entryPrice * (1 + targetProfitPercent),
+                    highestPrice: entryPrice,
+                    lowestPrice: entryPrice
+                };
+
+                console.log(`📈 [Trade] Entry at ${entryPrice.toFixed(2)} | SL: ${position.stopLossPrice.toFixed(2)} | TP: ${position.targetPrice.toFixed(2)}`);
+            }
         }
 
+        // Force close any remaining open position at end of data
+        if (position !== null) {
+            const lastBar = ohlcData[ohlcData.length - 1];
+            const exitPrice = lastBar.close * (1 - this.SLIPPAGE_PERCENT);
+            trades.push(createTrade(lastBar.time as number, exitPrice, 'MarketClose', { 'Exit Reason': 'End of Data' }));
+        }
+
+        console.log(`✅ [Backtest] Generated ${trades.length} trades with SL/TP/Trailing Stop`);
         return trades;
     }
 
@@ -870,6 +1161,30 @@ export class BacktestEngine {
             avgWin: 0,
             avgLoss: 0,
         };
+    }
+
+    /**
+     * Calculate all SMAs for entire dataset in a single pass - O(n)
+     * Uses rolling window to avoid repeated array slicing
+     */
+    private calculateAllSMAs(prices: number[], period: number): (number | null)[] {
+        const result: (number | null)[] = new Array(prices.length).fill(null);
+        if (prices.length < period) return result;
+
+        // Initialize rolling sum
+        let sum = 0;
+        for (let i = 0; i < period; i++) {
+            sum += prices[i];
+        }
+        result[period - 1] = sum / period;
+
+        // Rolling window - O(1) per update
+        for (let i = period; i < prices.length; i++) {
+            sum = sum - prices[i - period] + prices[i];
+            result[i] = sum / period;
+        }
+
+        return result;
     }
 }
 

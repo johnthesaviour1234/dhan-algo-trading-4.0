@@ -84,13 +84,21 @@ export class BacktestDataFetcher {
         const bars: CandlestickData[] = [];
 
         for (let i = 0; i < data.c.length; i++) {
-            bars.push({
+            // Use type assertion since CandlestickData doesn't include volume but we need it
+            const bar = {
                 time: data.t[i] as Time,
                 open: parseFloat(data.o[i]),
                 high: parseFloat(data.h[i]),
                 low: parseFloat(data.l[i]),
                 close: parseFloat(data.c[i]),
-            });
+            } as CandlestickData & { volume?: number };
+
+            // Add volume if available
+            if (data.v && data.v[i] !== undefined) {
+                bar.volume = parseFloat(data.v[i]);
+            }
+
+            bars.push(bar as CandlestickData);
         }
 
         // Sort chronologically

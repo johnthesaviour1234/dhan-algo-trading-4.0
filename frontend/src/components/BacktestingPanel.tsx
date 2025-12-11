@@ -150,6 +150,21 @@ const availableStrategies: AvailableStrategy[] = [
       params: { fastPeriod: 15, slowPeriod: 60, adxPeriod: 14, adxThreshold: 25 }
     }
   },
+  {
+    id: '9',
+    name: 'EMA Scalping (8/13/21/34)',
+    type: 'scalping',
+    engineConfig: {
+      name: 'EMA Scalping (8/13/21/34)',
+      type: 'ema-scalping',
+      direction: 'long',
+      params: {
+        rsiPeriod: 7,
+        targetProfitPercent: 0.015,  // 1.5% target (1:1.5 R:R)
+        stopLossPercent: 0.01        // 1% stop loss
+      }
+    }
+  },
 ];
 
 // Symbol configuration for backtesting (same as chart)
