@@ -275,19 +275,20 @@ export class EMASimpleStrategy implements BaseStrategy<EMASimpleConfig, EMASimpl
     runBacktest(
         ohlcData: CandlestickData[],
         config: EMASimpleConfig = DEFAULT_CONFIG,
-        quantity: number = 1
+        initialCapital: number = 100
     ): { trades: Trade[]; metrics: Metrics; analytics: EMASimpleAnalytics } {
-        console.log(`🧪 [${this.name}] Running backtest on ${ohlcData.length} candles`);
+        console.log(`🧪 [${this.name}] Running backtest on ${ohlcData.length} candles with ₹${initialCapital} capital`);
 
         // Step 1: Strategy generates signals
         const signals = this.generateSignals(ohlcData, config);
 
-        // Step 2: Engine simulates trades (generic)
-        const trades = backtestEngine.simulateTrades(signals, ohlcData, quantity);
-        console.log(`✅ [${this.name}] ${trades.length} trades generated`);
+        // Step 2: Engine simulates trades (generic) with capital tracking
+        const backtestConfig = { initialCapital, quantity: 1 };
+        const { trades, barsInPosition, totalMarketBars } = backtestEngine.simulateTrades(signals, ohlcData, backtestConfig);
+        console.log(`✅ [${this.name}] ${trades.length} trades generated, Time in market: ${((barsInPosition / totalMarketBars) * 100).toFixed(1)}%`);
 
-        // Step 3: Engine calculates metrics (generic)
-        const metrics = backtestEngine.calculateMetrics(trades);
+        // Step 3: Engine calculates metrics (generic) with capital and timeInMarket
+        const metrics = backtestEngine.calculateMetrics(trades, initialCapital, barsInPosition, totalMarketBars);
 
         // Step 4: Strategy calculates analytics (strategy-specific)
         const analytics = this.calculateAnalytics(trades as unknown as BaseTrade[]);

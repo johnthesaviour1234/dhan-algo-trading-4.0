@@ -78,7 +78,13 @@ export interface StrategyPerformance {
   };
   trades: Trade[];
   calculations?: import('../types/CalculationRow').CalculationRow[];
-  advancedAnalytics?: AdvancedAnalytics;  // NEW: Advanced analytics data
+  advancedAnalytics?: AdvancedAnalytics;
+  capitalInfo?: {
+    initialCapital: number;
+    finalCapital: number;
+    netPnL: number;
+    returnPercent: number;
+  };
 }
 
 // Real strategy configurations - strategy handles its own config internally
@@ -154,6 +160,7 @@ function BacktestingContent() {
 
   const [startDate, setStartDate] = useState(thirtyDaysAgo.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
+  const [initialCapital, setInitialCapital] = useState(100); // Default ₹100
   const [selectedStrategies, setSelectedStrategies] = useState<SelectedStrategy[]>([]);
   const [performanceData, setPerformanceData] = useState<StrategyPerformance[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -229,7 +236,7 @@ function BacktestingContent() {
         const { trades, metrics, analytics } = emaSimpleStrategy.runBacktest(
           ohlcData,
           undefined, // use default config
-          1 // quantity
+          initialCapital // user-specified capital
         );
 
         // Use analytics from strategy
@@ -247,16 +254,26 @@ function BacktestingContent() {
           indicators: t.indicators
         }));
 
+        // Calculate net PnL for capital tracking
+        const netPnL = trades.reduce((sum, t) => sum + t.pnl, 0);
+        const finalCapital = initialCapital + netPnL;
+
         results.push({
           strategyId: strategy.strategyId,
           strategyName: strategy.name,
           strategyType: strategy.type,
           metrics: metrics,
           trades: convertedTrades,
-          advancedAnalytics: advancedAnalytics,  // NEW: Include advanced analytics
+          advancedAnalytics: advancedAnalytics,
+          capitalInfo: {
+            initialCapital,
+            finalCapital: parseFloat(finalCapital.toFixed(2)),
+            netPnL: parseFloat(netPnL.toFixed(2)),
+            returnPercent: parseFloat(((netPnL / initialCapital) * 100).toFixed(2)),
+          },
         });
 
-        console.log(`✅ [Backtest] ${strategy.name}: ${trades.length} trades`);
+        console.log(`✅ [Backtest] ${strategy.name}: ${trades.length} trades, Capital: ₹${initialCapital} → ₹${finalCapital.toFixed(2)}`);
       }
 
       setProgress({ percent: 100, message: 'Backtest complete!' });
@@ -345,7 +362,7 @@ function BacktestingContent() {
       </div>
 
       {/* Date Selection */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-3 gap-4 mb-6">
         <div>
           <label htmlFor="start-date" className="block text-gray-700 mb-2">
             Start Date
@@ -367,6 +384,20 @@ function BacktestingContent() {
             type="date"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label htmlFor="initial-capital" className="block text-gray-700 mb-2">
+            Initial Capital (₹)
+          </label>
+          <input
+            id="initial-capital"
+            type="number"
+            min="1"
+            step="1"
+            value={initialCapital}
+            onChange={(e) => setInitialCapital(Number(e.target.value) || 100)}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>

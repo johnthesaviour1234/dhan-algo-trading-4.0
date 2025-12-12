@@ -55,6 +55,13 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
       advancedAnalytics: {
         hourlyPerformance: performance.advancedAnalytics?.hourlyPerformance || []
       },
+      // Capital tracking
+      capitalInfo: performance.capitalInfo || {
+        initialCapital: 100,
+        finalCapital: 100 + performance.trades.reduce((sum, t) => sum + t.pnl, 0),
+        netPnL: performance.trades.reduce((sum, t) => sum + t.pnl, 0),
+        returnPercent: (performance.trades.reduce((sum, t) => sum + t.pnl, 0) / 100) * 100
+      },
       // Trade summary with verification data
       tradeSummary: {
         winningTrades: performance.trades.filter(t => t.pnl > 0).length,
@@ -190,6 +197,36 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
           </button>
         </div>
       </div>
+
+      {/* Capital Info */}
+      {performance.capitalInfo && (
+        <div className="mb-4 p-3 bg-gradient-to-r from-blue-50 to-green-50 rounded-lg border border-blue-200">
+          <div className="grid grid-cols-4 gap-4 text-center">
+            <div>
+              <div className="text-gray-500 text-xs">Initial Capital</div>
+              <div className="text-blue-600 font-bold">₹{performance.capitalInfo.initialCapital}</div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Final Capital</div>
+              <div className={`font-bold ${performance.capitalInfo.finalCapital >= performance.capitalInfo.initialCapital ? 'text-green-600' : 'text-red-600'}`}>
+                ₹{performance.capitalInfo.finalCapital.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Net P&L</div>
+              <div className={`font-bold ${performance.capitalInfo.netPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {performance.capitalInfo.netPnL >= 0 ? '+' : ''}₹{performance.capitalInfo.netPnL.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Return</div>
+              <div className={`font-bold ${performance.capitalInfo.returnPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {performance.capitalInfo.returnPercent >= 0 ? '+' : ''}{performance.capitalInfo.returnPercent.toFixed(2)}%
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Metrics by Timeframe */}
       <div className="space-y-3 mb-6">

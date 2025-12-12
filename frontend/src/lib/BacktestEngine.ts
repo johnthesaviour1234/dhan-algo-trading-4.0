@@ -74,6 +74,19 @@ export interface Metrics {
     overall: MetricData;
 }
 
+export interface BacktestConfig {
+    initialCapital: number;  // Default: 100
+    quantity: number;        // Default: 1
+}
+
+export interface BacktestResult {
+    trades: Trade[];
+    metrics: Metrics;
+    equity: { time: number; value: number }[];
+    totalBarsInPosition: number;
+    totalMarketBars: number;
+}
+
 // ==================== ENGINE ====================
 
 export class BacktestEngine {
@@ -109,20 +122,27 @@ export class BacktestEngine {
     /**
      * Simulate trades from signals
      * Generic: BUY opens position, SELL or market close exits
+     * Returns trades + tracking data for metrics
      */
     simulateTrades(
         signals: Signal[],
         ohlcData: CandlestickData[],
-        quantity: number = 1
-    ): Trade[] {
+        config: BacktestConfig = { initialCapital: 100, quantity: 1 }
+    ): { trades: Trade[]; barsInPosition: number; totalMarketBars: number; equity: { time: number; value: number }[] } {
         const trades: Trade[] = [];
+        const equity: { time: number; value: number }[] = [];
         let position: { entryTime: number; entryPrice: number; indicators: Record<string, number | boolean | string> } | null = null;
         let tradeCount = 0;
+        let barsInPosition = 0;
+        let totalMarketBars = 0;
+        let currentEquity = config.initialCapital;
 
         const signalMap = new Map<number, Signal>();
         for (const signal of signals) {
             signalMap.set(signal.time, signal);
         }
+
+        const { quantity } = config;
 
         const createTrade = (
             exitTime: number,
@@ -147,6 +167,9 @@ export class BacktestEngine {
             const exitDate = new Date(exitTime * 1000);
             const durationMins = Math.round((exitTime - pos.entryTime) / 60);
             const duration = durationMins < 60 ? `${durationMins}min` : `${Math.floor(durationMins / 60)}h ${durationMins % 60}min`;
+
+            // Update equity after trade closes
+            currentEquity += netPnl;
 
             return {
                 id: `trade-${tradeCount}`,
@@ -174,10 +197,20 @@ export class BacktestEngine {
             const bar = ohlcData[i];
             const barTime = bar.time as number;
 
+            // Count market bars within trading hours
+            if (this.isWithinMarketHours(barTime)) {
+                totalMarketBars++;
+            }
+
+            // Track bars in position
             if (position !== null) {
+                barsInPosition++;
+
                 if (this.isForceCloseTime(barTime)) {
                     const exitPrice = bar.close * (1 - this.SLIPPAGE_PERCENT);
-                    trades.push(createTrade(barTime, exitPrice, 'MarketClose'));
+                    const trade = createTrade(barTime, exitPrice, 'MarketClose');
+                    trades.push(trade);
+                    equity.push({ time: barTime, value: currentEquity });
                     position = null;
                     continue;
                 }
@@ -185,7 +218,9 @@ export class BacktestEngine {
                 const signal = signalMap.get(barTime);
                 if (signal && signal.type === 'SELL') {
                     const exitPrice = signal.price * (1 - this.SLIPPAGE_PERCENT);
-                    trades.push(createTrade(barTime, exitPrice, 'Signal', signal.indicators));
+                    const trade = createTrade(barTime, exitPrice, 'Signal', signal.indicators);
+                    trades.push(trade);
+                    equity.push({ time: barTime, value: currentEquity });
                     position = null;
                     continue;
                 }
@@ -205,27 +240,40 @@ export class BacktestEngine {
         if (position !== null) {
             const lastBar = ohlcData[ohlcData.length - 1];
             const exitPrice = lastBar.close * (1 - this.SLIPPAGE_PERCENT);
-            trades.push(createTrade(lastBar.time as number, exitPrice, 'MarketClose'));
+            const trade = createTrade(lastBar.time as number, exitPrice, 'MarketClose');
+            trades.push(trade);
+            equity.push({ time: lastBar.time as number, value: currentEquity });
         }
 
-        return trades;
+        return { trades, barsInPosition, totalMarketBars, equity };
     }
 
     /**
      * Calculate all metrics for all timeframes
+     * @param trades - List of executed trades
+     * @param initialCapital - Starting capital (default ₹100)
+     * @param barsInPosition - Total bars where position was held
+     * @param totalMarketBars - Total market bars in the backtest period
      */
-    calculateMetrics(trades: Trade[]): Metrics {
+    calculateMetrics(
+        trades: Trade[],
+        initialCapital: number = 100,
+        barsInPosition: number = 0,
+        totalMarketBars: number = 1
+    ): Metrics {
         if (trades.length === 0) {
             return this.getEmptyMetrics();
         }
 
+        const timeInMarket = totalMarketBars > 0 ? (barsInPosition / totalMarketBars) * 100 : 0;
+
         return {
-            daily: this.calculatePeriodMetrics(trades, 'daily'),
-            weekly: this.calculatePeriodMetrics(trades, 'weekly'),
-            monthly: this.calculatePeriodMetrics(trades, 'monthly'),
-            quarterly: this.calculatePeriodMetrics(trades, 'quarterly'),
-            yearly: this.calculatePeriodMetrics(trades, 'yearly'),
-            overall: this.calculateOverallMetrics(trades),
+            daily: this.calculatePeriodMetrics(trades, 'daily', initialCapital, timeInMarket),
+            weekly: this.calculatePeriodMetrics(trades, 'weekly', initialCapital, timeInMarket),
+            monthly: this.calculatePeriodMetrics(trades, 'monthly', initialCapital, timeInMarket),
+            quarterly: this.calculatePeriodMetrics(trades, 'quarterly', initialCapital, timeInMarket),
+            yearly: this.calculatePeriodMetrics(trades, 'yearly', initialCapital, timeInMarket),
+            overall: this.calculateOverallMetrics(trades, initialCapital, timeInMarket),
         };
     }
 
@@ -295,7 +343,7 @@ export class BacktestEngine {
     /**
      * Calculate metrics for a period (averaged)
      */
-    private calculatePeriodMetrics(trades: Trade[], periodType: string): MetricData {
+    private calculatePeriodMetrics(trades: Trade[], periodType: string, initialCapital: number, timeInMarket: number): MetricData {
         if (trades.length === 0) return this.getEmptyMetricData();
 
         const groups = this.groupTradesByPeriod(trades, periodType);
@@ -303,7 +351,7 @@ export class BacktestEngine {
 
         const periodMetrics: MetricData[] = [];
         for (const [, periodTrades] of groups) {
-            const metrics = this.calculateSinglePeriodMetrics(periodTrades);
+            const metrics = this.calculateSinglePeriodMetrics(periodTrades, initialCapital);
             if (metrics) periodMetrics.push(metrics);
         }
 
@@ -326,18 +374,17 @@ export class BacktestEngine {
             maxConsecutiveWins: Math.max(...periodMetrics.map(m => m.maxConsecutiveWins)),
             maxConsecutiveLosses: Math.max(...periodMetrics.map(m => m.maxConsecutiveLosses)),
             riskRewardRatio: parseFloat((periodMetrics.reduce((s, m) => s + m.riskRewardRatio, 0) / n).toFixed(2)),
-            timeInMarket: 0,
+            timeInMarket: parseFloat(timeInMarket.toFixed(2)),
         };
     }
 
     /**
      * Calculate metrics for a single period
      */
-    private calculateSinglePeriodMetrics(trades: Trade[]): MetricData | null {
+    private calculateSinglePeriodMetrics(trades: Trade[], initialCapital: number = 100): MetricData | null {
         if (trades.length === 0) return null;
 
         const totalPnl = trades.reduce((sum, t) => sum + t.pnl, 0);
-        const initialCapital = trades[0].entryPrice * trades[0].quantity;
         const totalReturn = (totalPnl / initialCapital) * 100;
 
         const winningTrades = trades.filter(t => t.pnl > 0);
@@ -386,8 +433,8 @@ export class BacktestEngine {
     /**
      * Calculate overall metrics
      */
-    private calculateOverallMetrics(trades: Trade[]): MetricData {
-        const metrics = this.calculateSinglePeriodMetrics(trades);
+    private calculateOverallMetrics(trades: Trade[], initialCapital: number, timeInMarket: number): MetricData {
+        const metrics = this.calculateSinglePeriodMetrics(trades, initialCapital);
         if (!metrics) return this.getEmptyMetricData();
 
         const returns = trades.map(t => t.pnlPercent / 100);
@@ -400,6 +447,7 @@ export class BacktestEngine {
         return {
             ...metrics,
             sharpeRatio: parseFloat(annualizedSharpe.toFixed(2)),
+            timeInMarket: parseFloat(timeInMarket.toFixed(2)),
         };
     }
 
