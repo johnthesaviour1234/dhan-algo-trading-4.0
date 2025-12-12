@@ -3,7 +3,7 @@ import { Play, TrendingUp, TrendingDown, Activity, Target, BarChart3, DollarSign
 import { StrategyCard } from './StrategyCard';
 import { LiveTradingPanel } from './LiveTradingPanel';
 import { backtestDataFetcher, BacktestSymbolConfig } from '../lib/BacktestDataFetcher';
-import { backtestEngine, StrategyConfig } from '../lib/BacktestEngine';
+import { emaSimpleStrategy } from '../strategies/EMA_3_15_Simple';
 import type { TradeCosts } from '../utils/BrokerageCalculator';
 
 export interface MetricData {
@@ -17,6 +17,13 @@ export interface MetricData {
   expectancy: number;  // (Win Rate × Avg Win) - (Loss Rate × Avg Loss)
   avgWin: number;      // Average winning trade (₹)
   avgLoss: number;     // Average losing trade (₹)
+  // NEW: Trade Quality Metrics
+  payoffRatio: number;         // avgWin / avgLoss
+  recoveryFactor: number;      // totalReturn / abs(maxDrawdown)
+  maxConsecutiveWins: number;
+  maxConsecutiveLosses: number;
+  riskRewardRatio: number;     // Actual achieved R:R
+  timeInMarket: number;        // % of time holding position
 }
 
 export interface Trade {
@@ -37,6 +44,26 @@ export interface Trade {
   indicators?: Record<string, number | boolean | string>;
 }
 
+// Simple Analytics Types (for ema-simple strategy)
+export interface HourlyPerformance {
+  hour: string;
+  trades: number;
+  winRate: number;
+  avgPnl: number;
+  totalPnl: number;
+}
+
+// Simple exit reasons (only Signal and MarketClose for simple strategies)
+export interface SimpleExitReasons {
+  signal: number;
+  marketClose: number;
+}
+
+export interface AdvancedAnalytics {
+  exitReasons: SimpleExitReasons;
+  hourlyPerformance: HourlyPerformance[];
+}
+
 export interface StrategyPerformance {
   strategyId: string;
   strategyName: string;
@@ -51,119 +78,21 @@ export interface StrategyPerformance {
   };
   trades: Trade[];
   calculations?: import('../types/CalculationRow').CalculationRow[];
+  advancedAnalytics?: AdvancedAnalytics;  // NEW: Advanced analytics data
 }
 
-// Real strategy configurations that map to the BacktestEngine
+// Real strategy configurations - strategy handles its own config internally
 interface AvailableStrategy {
   id: string;
   name: string;
   type: string;
-  engineConfig: StrategyConfig;
 }
 
 const availableStrategies: AvailableStrategy[] = [
   {
     id: '1',
-    name: 'SMA 3/15 Crossover',
-    type: 'trend',
-    engineConfig: {
-      name: 'SMA 3/15 Crossover',
-      type: 'sma-crossover',
-      direction: 'long',
-      params: { fastPeriod: 3, slowPeriod: 15 }
-    }
-  },
-  {
-    id: '2',
-    name: 'SMA 5/20 Crossover',
-    type: 'trend',
-    engineConfig: {
-      name: 'SMA 5/20 Crossover',
-      type: 'sma-crossover',
-      direction: 'long',
-      params: { fastPeriod: 5, slowPeriod: 20 }
-    }
-  },
-  {
-    id: '3',
-    name: 'EMA 3/15 Crossover',
-    type: 'trend',
-    engineConfig: {
-      name: 'EMA 3/15 Crossover',
-      type: 'ema-crossover',
-      direction: 'long',
-      params: { fastPeriod: 3, slowPeriod: 15 }
-    }
-  },
-  {
-    id: '4',
-    name: 'EMA 9/21 Crossover',
-    type: 'trend',
-    engineConfig: {
-      name: 'EMA 9/21 Crossover',
-      type: 'ema-crossover',
-      direction: 'long',
-      params: { fastPeriod: 9, slowPeriod: 21 }
-    }
-  },
-  {
-    id: '5',
-    name: 'SMA 10/50 Crossover',
-    type: 'trend',
-    engineConfig: {
-      name: 'SMA 10/50 Crossover',
-      type: 'sma-crossover',
-      direction: 'long',
-      params: { fastPeriod: 10, slowPeriod: 50 }
-    }
-  },
-  {
-    id: '6',
-    name: 'EMA 12/26 Crossover',
-    type: 'trend',
-    engineConfig: {
-      name: 'EMA 12/26 Crossover',
-      type: 'ema-crossover',
-      direction: 'long',
-      params: { fastPeriod: 12, slowPeriod: 26 }
-    }
-  },
-  {
-    id: '7',
-    name: 'EMA 3/15 + Candlestick',
-    type: 'pattern',
-    engineConfig: {
-      name: 'EMA 3/15 + Candlestick',
-      type: 'ema-candlestick',
-      direction: 'long',
-      params: { fastPeriod: 3, slowPeriod: 15, adxPeriod: 14, adxThreshold: 25 }
-    }
-  },
-  {
-    id: '8',
-    name: 'EMA 15/60 + Candlestick',
-    type: 'pattern',
-    engineConfig: {
-      name: 'EMA 15/60 + Candlestick',
-      type: 'ema-candlestick',
-      direction: 'long',
-      params: { fastPeriod: 15, slowPeriod: 60, adxPeriod: 14, adxThreshold: 25 }
-    }
-  },
-  {
-    id: '9',
-    name: 'EMA Scalping (8/13/21/34)',
-    type: 'scalping',
-    engineConfig: {
-      name: 'EMA Scalping (8/13/21/34)',
-      type: 'ema-scalping',
-      direction: 'long',
-      params: {
-        rsiPeriod: 7,
-        targetProfitPercent: 0.015,  // 1.5% target (1:1.5 R:R)
-        stopLossPercent: 0.01        // 1% stop loss
-      }
-    }
+    name: 'EMA 3/15 Simple v1.0.0',
+    type: 'simple',
   },
 ];
 
@@ -296,12 +225,21 @@ function BacktestingContent() {
           message: `Running ${strategy.name}... (${i + 1}/${selectedStrategies.length})`
         });
 
-        // Run the backtest engine
-        const { trades, metrics } = backtestEngine.runBacktest(
+        // Run the backtest via strategy (strategy owns the orchestration)
+        const { trades, metrics, analytics } = emaSimpleStrategy.runBacktest(
           ohlcData,
-          strategy.engineConfig,
+          undefined, // use default config
           1 // quantity
         );
+
+        // Use analytics from strategy
+        const advancedAnalytics: AdvancedAnalytics = {
+          exitReasons: {
+            signal: trades.filter(t => t.exitReason === 'Signal').length,
+            marketClose: trades.filter(t => t.exitReason === 'MarketClose').length
+          },
+          hourlyPerformance: analytics.hourlyPerformance,
+        };
 
         // Convert BacktestTrade to Trade interface
         const convertedTrades: Trade[] = trades.map(t => ({
@@ -315,6 +253,7 @@ function BacktestingContent() {
           strategyType: strategy.type,
           metrics: metrics,
           trades: convertedTrades,
+          advancedAnalytics: advancedAnalytics,  // NEW: Include advanced analytics
         });
 
         console.log(`✅ [Backtest] ${strategy.name}: ${trades.length} trades`);
@@ -333,14 +272,20 @@ function BacktestingContent() {
   };
 
   const calculateCombinedMetrics = (): StrategyPerformance['metrics'] => {
+    const emptyMetric: MetricData = {
+      return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0,
+      profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0,
+      payoffRatio: 0, recoveryFactor: 0, maxConsecutiveWins: 0, maxConsecutiveLosses: 0, riskRewardRatio: 0, timeInMarket: 0
+    };
+
     if (performanceData.length === 0) {
       return {
-        daily: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
-        weekly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
-        monthly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
-        quarterly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
-        yearly: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
-        overall: { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 },
+        daily: emptyMetric,
+        weekly: emptyMetric,
+        monthly: emptyMetric,
+        quarterly: emptyMetric,
+        yearly: emptyMetric,
+        overall: emptyMetric,
       };
     }
 
@@ -361,6 +306,13 @@ function BacktestingContent() {
       const avgExpectancy = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].expectancy, 0) / performanceData.length;
       const avgWin = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].avgWin, 0) / performanceData.length;
       const avgLoss = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].avgLoss, 0) / performanceData.length;
+      // New metrics
+      const avgPayoffRatio = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].payoffRatio, 0) / performanceData.length;
+      const avgRecoveryFactor = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].recoveryFactor, 0) / performanceData.length;
+      const maxConsecutiveWins = Math.max(...performanceData.map(p => p.metrics[timeframe].maxConsecutiveWins));
+      const maxConsecutiveLosses = Math.max(...performanceData.map(p => p.metrics[timeframe].maxConsecutiveLosses));
+      const avgRiskReward = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].riskRewardRatio, 0) / performanceData.length;
+      const avgTimeInMarket = performanceData.reduce((sum, p) => sum + p.metrics[timeframe].timeInMarket, 0) / performanceData.length;
 
       combined[timeframe] = {
         return: avgReturn,
@@ -373,6 +325,12 @@ function BacktestingContent() {
         expectancy: avgExpectancy,
         avgWin: avgWin,
         avgLoss: avgLoss,
+        payoffRatio: avgPayoffRatio,
+        recoveryFactor: avgRecoveryFactor,
+        maxConsecutiveWins: maxConsecutiveWins,
+        maxConsecutiveLosses: maxConsecutiveLosses,
+        riskRewardRatio: avgRiskReward,
+        timeInMarket: avgTimeInMarket,
       };
     });
 
@@ -552,6 +510,7 @@ function BacktestingContent() {
                   performance={performance}
                   onRemove={() => removeStrategy(performance.strategyId)}
                   totalStrategies={performanceData.length}
+                  dateRange={{ start: startDate, end: endDate }}
                 />
               ))}
             </div>

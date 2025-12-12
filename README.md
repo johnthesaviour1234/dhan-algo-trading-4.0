@@ -101,31 +101,34 @@ A full-stack algorithmic trading platform with backtesting capabilities and live
 
 - `ws://localhost:3001` - Real-time price updates
 
-## Available Strategies
+## Strategy Architecture (Updated 2025-12-12)
 
-- Moving Average Crossover
-- RSI Strategy
-- Bollinger Bands
-- MACD
+The project uses an **isolated strategy architecture** where each strategy is self-contained.
 
-## Configuration
-
-### Backend Environment Variables
-
-Create a `.env` file in the `backend` directory:
-
-```env
-PORT=3001
-NODE_ENV=development
+```
+frontend/src/strategies/
+├── BaseStrategy.ts           # Interface all strategies implement
+├── README.md                 # Developer documentation
+├── index.ts                  # Strategy exports
+└── EMA_3_15_Simple/          # Example isolated strategy
+    ├── index.ts              # Strategy implementation
+    └── types.ts              # Strategy-specific types
 ```
 
-## Development
+**Current Strategies:**
+| Strategy | Type | Version |
+|----------|------|---------|
+| EMA 3/15 Simple | Crossover | 1.0.0 |
 
-### Adding New Strategies
+**Adding New Strategies:**
+1. Read `frontend/src/strategies/README.md`
+2. Create folder `strategies/[NEW_STRATEGY]/`
+3. Implement `BaseStrategy` interface
+4. Define strategy-specific analytics and export format
 
-1. Update the strategy selector in `BacktestingPanel.tsx`
-2. Implement the strategy logic in the backend
-3. Add strategy parameters as needed
+See [Strategy README](frontend/src/strategies/README.md) for detailed documentation.
+
+## Configuration
 
 ### Customizing the Chart
 

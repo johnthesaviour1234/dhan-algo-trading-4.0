@@ -2,12 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { Play, Pause, TrendingUp, TrendingDown, Activity, Target, BarChart3, DollarSign } from 'lucide-react';
 import { StrategyCard } from './StrategyCard';
 import type { StrategyPerformance, MetricData, Trade } from './BacktestingPanel';
-import { TestingStrategy } from '../strategies/TestingStrategy';
-import { TestingStrategy2 } from '../strategies/TestingStrategy2';
-import { TestingStrategy3 } from '../strategies/TestingStrategy3';
-import { TestingStrategy4 } from '../strategies/TestingStrategy4';
-import { EmaLongStrategy } from '../strategies/EmaLongStrategy';
-import { SmaLongStrategy } from '../strategies/SmaLongStrategy';
+// NOTE: Legacy strategy imports removed during architecture refactoring (2025-12-12)
+// Live trading strategies need to be migrated to new isolated architecture
+// See: frontend/src/strategies/README.md
 import { toast } from './Toast';
 import { API_URL } from '../config/api';
 import { useWebSocket } from '../hooks/useWebSocket';
@@ -15,19 +12,10 @@ import { useChartData } from '../contexts/ChartDataContext';
 import { useMemo } from 'react';
 import type { OHLCCandle } from '../types/Strategy';
 
+// TODO: Migrate live trading strategies to new isolated architecture
 const availableStrategies = [
-  { id: 'testing', name: 'Testing', type: 'auto' },
-  { id: 'testing-2', name: 'Testing-2', type: 'auto' },
-  { id: 'testing-3', name: 'Testing-3', type: 'auto' },
-  { id: 'testing-4', name: 'Testing-4', type: 'auto' },
-  { id: 'ema_3_15_long', name: 'EMA 3/15 Long', type: 'trend' },
-  { id: 'sma_3_15_long', name: 'SMA 3/15 Long', type: 'trend' },
-  { id: '1', name: 'SMA Crossover', type: 'trend' },
-  { id: '2', name: 'RSI Mean Reversion', type: 'mean-reversion' },
-  { id: '3', name: 'Breakout Strategy', type: 'momentum' },
-  { id: '4', name: 'Bollinger Bands', type: 'volatility' },
-  { id: '5', name: 'MACD Strategy', type: 'trend' },
-  { id: '6', name: 'Pairs Trading', type: 'statistical' },
+  { id: 'ema_3_15_simple', name: 'EMA 3/15 Simple v1.0.0', type: 'simple' },
+  // Legacy strategies removed - need migration to new architecture
 ];
 interface LiveTradingPanelProps {
   orders: import('../App').ProcessedOrder[];
@@ -38,7 +26,8 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
   const [performanceData, setPerformanceData] = useState<StrategyPerformance[]>([]);
   const [isLive, setIsLive] = useState(false);
   const [hasResults, setHasResults] = useState(false);
-  const [activeStrategies, setActiveStrategies] = useState<Map<string, TestingStrategy | TestingStrategy2 | TestingStrategy3 | TestingStrategy4 | EmaLongStrategy | SmaLongStrategy>>(new Map());
+  // TODO: Replace with new isolated strategy interface when migrated
+  const [activeStrategies, setActiveStrategies] = useState<Map<string, unknown>>(new Map());
   const [hasAccessToken, setHasAccessToken] = useState(false);
   const [isSyncingOrders, setIsSyncingOrders] = useState(false);
 
@@ -339,6 +328,12 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
       return;
     }
 
+    // TODO: Live trading strategies need to be migrated to new isolated architecture
+    // See: frontend/src/strategies/README.md
+    toast.warning('Live trading strategies are being migrated to new architecture. Check console for details.');
+    console.log('⚠️ Live trading strategies need to be migrated to new isolated architecture');
+    console.log('📖 See: frontend/src/strategies/README.md');
+
     // Sync Order Book before starting strategies
     toast.info('Syncing Order Book...');
     const syncSuccess = await fetchOrderBook();
@@ -350,265 +345,48 @@ export function LiveTradingPanel({ orders, setOrders }: LiveTradingPanelProps) {
     // Wait 2 seconds for orders to fully sync and settle
     console.log('⏳ Waiting 2s for order data to settle...');
     await new Promise(resolve => setTimeout(resolve, 2000));
-    console.log('✅ Order data ready, starting strategies...');
+    console.log('✅ Order data ready');
 
     setIsLive(true);
 
-    // Initialize strategies
-    const newActiveStrategies = new Map<string, TestingStrategy | TestingStrategy2 | TestingStrategy3 | TestingStrategy4 | EmaLongStrategy | SmaLongStrategy>();
+    // Initialize with placeholder performance data
+    // TODO: Replace with actual strategy instances when migrated
     const initialPerformanceData: StrategyPerformance[] = [];
 
     selectedStrategies.forEach(strategy => {
-      if (strategy.id === 'testing') {
-        // Create and start Testing strategy with VALIDATED order placement
-        const testingStrategy = new TestingStrategy(
-          (type, qty) => validateAndPlaceOrder('testing', type, qty), // Use validated wrapper
-          (trade) => {
-            // Add trade to performance data
-            setPerformanceData(prevData => {
-              const strategyData = prevData.find(p => p.strategyId === 'testing');
-              if (strategyData) {
-                return prevData.map(p =>
-                  p.strategyId === 'testing'
-                    ? { ...p, trades: [trade, ...p.trades] }
-                    : p
-                );
-              }
-              return prevData;
-            });
-          }
-        );
-
-        testingStrategy.start();
-        newActiveStrategies.set('testing', testingStrategy);
-
-        // Initialize performance data for Testing strategy
-        initialPerformanceData.push({
-          strategyId: 'testing',
-          strategyName: 'Testing',
-          strategyType: 'auto',
-          metrics: generateInitialMetrics(),
-          trades: []
-        });
-
-        console.log('🚀 Testing strategy initialized and started');
-      } else if (strategy.id === 'testing-2') {
-        // Create and start Testing-2 strategy with VALIDATED order placement
-        const testingStrategy2 = new TestingStrategy2(
-          (type, qty) => validateAndPlaceOrder('testing-2', type, qty), // Use validated wrapper
-          (trade) => {
-            // Add trade to performance data
-            setPerformanceData(prevData => {
-              const strategyData = prevData.find(p => p.strategyId === 'testing-2');
-              if (strategyData) {
-                return prevData.map(p =>
-                  p.strategyId === 'testing-2'
-                    ? { ...p, trades: [trade, ...p.trades] }
-                    : p
-                );
-              }
-              return prevData;
-            });
-          }
-        );
-
-        testingStrategy2.start();
-        newActiveStrategies.set('testing-2', testingStrategy2);
-
-        // Initialize performance data for Testing-2 strategy
-        initialPerformanceData.push({
-          strategyId: 'testing-2',
-          strategyName: 'Testing-2',
-          strategyType: 'auto',
-          metrics: generateInitialMetrics(),
-          trades: []
-        });
-
-        console.log('🚀 Testing-2 strategy initialized and started');
-      } else if (strategy.id === 'testing-3') {
-        // Create and start Testing-3 strategy (SHORT) with VALIDATED order placement
-        const testingStrategy3 = new TestingStrategy3(
-          (type, qty) => validateAndPlaceOrder('testing-3', type, qty),
-          (trade) => {
-            setPerformanceData(prevData => {
-              const strategyData = prevData.find(p => p.strategyId === 'testing-3');
-              if (strategyData) {
-                return prevData.map(p =>
-                  p.strategyId === 'testing-3'
-                    ? { ...p, trades: [trade, ...p.trades] }
-                    : p
-                );
-              }
-              return prevData;
-            });
-          }
-        );
-
-        testingStrategy3.start();
-        newActiveStrategies.set('testing-3', testingStrategy3);
-
-        initialPerformanceData.push({
-          strategyId: 'testing-3',
-          strategyName: 'Testing-3',
-          strategyType: 'auto',
-          metrics: generateInitialMetrics(),
-          trades: []
-        });
-
-        console.log('🚀 Testing-3 strategy initialized and started');
-      } else if (strategy.id === 'testing-4') {
-        // Create and start Testing-4 strategy (SHORT) with VALIDATED order placement
-        const testingStrategy4 = new TestingStrategy4(
-          (type, qty) => validateAndPlaceOrder('testing-4', type, qty),
-          (trade) => {
-            setPerformanceData(prevData => {
-              const strategyData = prevData.find(p => p.strategyId === 'testing-4');
-              if (strategyData) {
-                return prevData.map(p =>
-                  p.strategyId === 'testing-4'
-                    ? { ...p, trades: [trade, ...p.trades] }
-                    : p
-                );
-              }
-              return prevData;
-            });
-          }
-        );
-
-        testingStrategy4.start();
-        newActiveStrategies.set('testing-4', testingStrategy4);
-
-        initialPerformanceData.push({
-          strategyId: 'testing-4',
-          strategyName: 'Testing-4',
-          strategyType: 'auto',
-          metrics: generateInitialMetrics(),
-          trades: []
-        });
-
-        console.log('🚀 Testing-4 strategy initialized and started');
-      } else if (strategy.id === 'ema_3_15_long') {
-        // Create and start EMA 3/15 Long strategy
-        const emaLongStrategy = new EmaLongStrategy(
-          (type, qty) => validateAndPlaceOrder('ema_3_15_long', type, qty),
-          (trade) => {
-            setPerformanceData(prevData => {
-              const strategyData = prevData.find(p => p.strategyId === 'ema_3_15_long');
-              if (strategyData) {
-                return prevData.map(p =>
-                  p.strategyId === 'ema_3_15_long'
-                    ? { ...p, trades: [trade, ...p.trades] }
-                    : p
-                );
-              }
-              return prevData;
-            });
-          }
-        );
-
-        const filteredData = getFilteredOHLCData(mergedOHLCData, emaLongStrategy.lookbackCandles);
-        emaLongStrategy.start(filteredData);
-        console.log(`📊 [EMA 3/15 Long] Filtered data: ${filteredData.length}/${mergedOHLCData.length} candles`);
-        newActiveStrategies.set('ema_3_15_long', emaLongStrategy);
-
-        initialPerformanceData.push({
-          strategyId: 'ema_3_15_long',
-          strategyName: 'EMA 3/15 Long',
-          strategyType: 'trend',
-          metrics: generateInitialMetrics(),
-          trades: []
-        });
-
-        console.log('🚀 EMA 3/15 Long strategy initialized and started');
-      } else if (strategy.id === 'sma_3_15_long') {
-        // Create and start SMA 3/15 Long strategy
-        const smaLongStrategy = new SmaLongStrategy(
-          (type, qty) => validateAndPlaceOrder('sma_3_15_long', type, qty),
-          (trade) => {
-            setPerformanceData(prevData => {
-              const strategyData = prevData.find(p => p.strategyId === 'sma_3_15_long');
-              if (strategyData) {
-                return prevData.map(p =>
-                  p.strategyId === 'sma_3_15_long'
-                    ? { ...p, trades: [trade, ...p.trades] }
-                    : p
-                );
-              }
-              return prevData;
-            });
-          }
-        );
-
-        const filteredData = getFilteredOHLCData(mergedOHLCData, smaLongStrategy.lookbackCandles);
-        smaLongStrategy.start(filteredData);
-        console.log(`📊 [SMA 3/15 Long] Filtered data: ${filteredData.length}/${mergedOHLCData.length} candles`);
-        newActiveStrategies.set('sma_3_15_long', smaLongStrategy);
-
-        initialPerformanceData.push({
-          strategyId: 'sma_3_15_long',
-          strategyName: 'SMA 3/15 Long',
-          strategyType: 'trend',
-          metrics: generateInitialMetrics(),
-          trades: []
-        });
-
-        console.log('🚀 SMA 3/15 Long strategy initialized and started');
-      } else {
-        // Non-Testing strategies: initialize with empty data (no mocks)
-        initialPerformanceData.push({
-          strategyId: strategy.id,
-          strategyName: strategy.name,
-          strategyType: strategy.type,
-          metrics: generateInitialMetrics(),
-          trades: [], // Empty - only Testing strategy executes real trades
-        });
-      }
+      // Placeholder initialization until strategies are migrated
+      initialPerformanceData.push({
+        strategyId: strategy.id,
+        strategyName: strategy.name,
+        strategyType: strategy.type,
+        metrics: generateInitialMetrics(),
+        trades: [],
+      });
+      console.log(`📊 [${strategy.name}] Strategy placeholder initialized (needs migration)`);
     });
 
-    setActiveStrategies(newActiveStrategies);
     setPerformanceData(initialPerformanceData);
     setHasResults(true);
   };
 
-  // Update strategies ONLY when new candle is added (not on every LTP tick)
-  useEffect(() => {
-    if (mergedOHLCData.length === 0 || activeStrategies.size === 0) return;
 
-    const latestCandle = mergedOHLCData[mergedOHLCData.length - 1];
-
-    // Only trigger if candle TIME changed (new minute started)
-    if (prevCandleTimeRef.current === latestCandle.time) {
-      return; // Same candle being updated, skip strategy recalculation
-    }
-
-    console.log(`🕐 New candle time detected: ${new Date(latestCandle.time * 1000).toISOString()}`);
-
-    // Update EMA and SMA strategies with filtered OHLC data
-    activeStrategies.forEach((strategy, id) => {
-      if (id === 'ema_3_15_long' || id === 'sma_3_15_long') {
-        if ('updateWithOHLCData' in strategy && 'lookbackCandles' in strategy) {
-          const filteredData = getFilteredOHLCData(
-            mergedOHLCData,
-            (strategy as any).lookbackCandles
-          );
-          strategy.updateWithOHLCData(filteredData);
-        }
-      }
-    });
-
-    prevCandleTimeRef.current = latestCandle.time;
-  }, [mergedOHLCData, activeStrategies]);
+  // TODO: Update strategies when new candle is added - commented until strategies migrated
+  // useEffect(() => {
+  //   if (mergedOHLCData.length === 0 || activeStrategies.size === 0) return;
+  //   // ... legacy strategy update logic
+  // }, [mergedOHLCData, activeStrategies]);
 
   const stopLiveTrading = () => {
     setIsLive(false);
 
-    // Stop all active strategies
-    activeStrategies.forEach((strategy, id) => {
-      console.log(`🛑 Stopping strategy: ${id}`);
-      strategy.stop();
-    });
+    // TODO: Stop all active strategies when migrated
+    // activeStrategies.forEach((strategy, id) => {
+    //   console.log(`🛑 Stopping strategy: ${id}`);
+    //   strategy.stop();
+    // });
 
     setActiveStrategies(new Map());
+    console.log('🛑 Live trading stopped - strategies placeholder cleared');
   };
 
 
