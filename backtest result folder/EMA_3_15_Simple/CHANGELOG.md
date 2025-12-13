@@ -64,6 +64,114 @@ This gives accurate baseline data for analysis.
 
 ---
 
+### v1.1.0 - ADX Filter
+**Date:** 2025-12-12  
+**Status:** ✅ TESTED
+
+#### Changes from v1.0.0
+- **Added ADX > 25 filter** - Only take BUY signals when ADX > 25
+- SELL signals always fire (must exit position)
+
+#### Results (Jan-Jun 2023)
+- Trades: 5,066 (down from 5,956)
+- Win rate: 0.61%
+- Return: -299% (still losing)
+- Conclusion: ADX > 25 not enough, need stronger filter
+
+---
+
+### v1.2.0 - Higher ADX Threshold
+**Date:** 2025-12-12  
+**Status:** ✅ TESTED
+
+#### Changes from v1.1.0
+- **Increased ADX threshold to 40** (from 25)
+
+#### Results (Jan-Jun 2023)
+- Trades: 4,075 (down from 5,066)
+- Win rate: 0.59%
+- Return: -240% (still losing)
+- Conclusion: ADX filter helps but 735 consecutive losses indicates deeper issue
+
+---
+
+### v1.3.0 - Enhanced Analytics
+**Date:** 2025-12-12  
+**Status:** ✅ TESTED
+
+#### Purpose
+Added comprehensive analytics to understand WHY we're losing:
+
+#### New Analytics
+1. **Duration Analysis**
+   - Under 1 min trades: win rate, avg PnL
+   - 1-5 min trades: win rate, avg PnL
+   - Over 5 min trades: win rate, avg PnL
+
+2. **Gross vs Net Analysis**
+   - Are we profitable BEFORE costs?
+   - Gross win rate vs Net win rate
+   - Total costs breakdown
+
+3. **Market Condition Analysis**
+   - EMA Gap on winners vs losers
+   - Trades with EMA Gap < 0.1% (sideways)
+   - Trades with EMA Gap > 0.1% (trending)
+   - Win rate in each condition
+
+---
+
+### v1.4.0 - ATR-Based Stop Loss & Target Profit
+**Date:** 2025-12-12  
+**Status:** ✅ TESTED
+
+#### Key Changes
+- **SL** = Entry - (ATR₁₄ × 3), **TP** = Entry + (ATR₁₄ × 3)
+- **1:1 Risk:Reward**
+- One trade at a time, exits via SL/TP/MarketClose
+
+#### Results (Jan-Jun 2023)
+| Metric | Value |
+|--------|-------|
+| Trades | 186 (↓ from 4,075) |
+| Win Rate | 25.27% (↑ from 0.59%) |
+| Return | -8.35% (↑ from -240%) |
+| Max Consec. Losses | 15 (↓ from 735) |
+
+#### Issues Found
+- 63% trades in sideways markets (EMA gap < 0.1%)
+- 10:00 AM = worst hour (13.5% win rate)
+- ATR×3 too wide → many MarketClose exits
+
+---
+
+### v1.5.0 - Improved Filters & R:R (Current)
+**Date:** 2025-12-12  
+**Status:** 🔄 TESTING
+
+#### Key Changes
+1. **EMA Gap Filter**: Skip when |EMA Gap| < 0.1% (sideways)
+2. **Time Filter**: Skip 09:45-10:15 (gap reversal zone)
+3. **Tighter SL**: ATR × 2 (was ×3)
+4. **Wider TP**: ATR × 4 (was ×3) → **1:2 R:R**
+5. **Max Hold Time**: 60 min forced exit
+
+#### Configuration
+```
+SL = Entry - (ATR₁₄ × 2)
+TP = Entry + (ATR₁₄ × 4)
+minEmaGap = 0.1%
+skipTime = 09:45-10:15
+maxHoldMinutes = 60
+```
+
+#### Expected Impact
+- Fewer trades (filtered sideways + 10AM)
+- Better win rate (trending markets only)
+- Better R:R (1:2 instead of 1:1)
+
+---
+
 This strategy was **refactored to isolated architecture**:
 
 ### Files

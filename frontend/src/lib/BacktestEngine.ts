@@ -43,7 +43,7 @@ export interface Trade {
     slippage: number;
     costs: TradeCosts;
     indicators: Record<string, number | boolean | string>;
-    exitReason: 'Signal' | 'MarketClose';
+    exitReason: 'Signal' | 'MarketClose' | 'StopLoss' | 'TakeProfit' | 'MaxHold';
 }
 
 export interface MetricData {
@@ -131,7 +131,14 @@ export class BacktestEngine {
     ): { trades: Trade[]; barsInPosition: number; totalMarketBars: number; equity: { time: number; value: number }[] } {
         const trades: Trade[] = [];
         const equity: { time: number; value: number }[] = [];
-        let position: { entryTime: number; entryPrice: number; indicators: Record<string, number | boolean | string> } | null = null;
+        let position: {
+            entryTime: number;
+            entryPrice: number;
+            indicators: Record<string, number | boolean | string>;
+            stopLoss: number | null;  // v1.4.0: ATR-based SL
+            takeProfit: number | null;  // v1.4.0: ATR-based TP
+            maxExitTime: number | null;  // v1.5.0: Max hold time exit
+        } | null = null;
         let tradeCount = 0;
         let barsInPosition = 0;
         let totalMarketBars = 0;
@@ -147,7 +154,7 @@ export class BacktestEngine {
         const createTrade = (
             exitTime: number,
             exitPrice: number,
-            exitReason: 'Signal' | 'MarketClose',
+            exitReason: 'Signal' | 'MarketClose' | 'StopLoss' | 'TakeProfit',
             exitIndicators: Record<string, number | boolean | string> = {}
         ): Trade => {
             const pos = position!;
@@ -206,6 +213,36 @@ export class BacktestEngine {
             if (position !== null) {
                 barsInPosition++;
 
+                // v1.4.0: Check Stop Loss hit (Low <= SL)
+                if (position.stopLoss !== null && bar.low <= position.stopLoss) {
+                    const exitPrice = position.stopLoss * (1 - this.SLIPPAGE_PERCENT);
+                    const trade = createTrade(barTime, exitPrice, 'StopLoss');
+                    trades.push(trade);
+                    equity.push({ time: barTime, value: currentEquity });
+                    position = null;
+                    continue;
+                }
+
+                // v1.4.0: Check Take Profit hit (High >= TP)
+                if (position.takeProfit !== null && bar.high >= position.takeProfit) {
+                    const exitPrice = position.takeProfit * (1 - this.SLIPPAGE_PERCENT);
+                    const trade = createTrade(barTime, exitPrice, 'TakeProfit');
+                    trades.push(trade);
+                    equity.push({ time: barTime, value: currentEquity });
+                    position = null;
+                    continue;
+                }
+
+                // v1.5.0: Check Max Hold Time
+                if (position.maxExitTime !== null && barTime >= position.maxExitTime) {
+                    const exitPrice = bar.close * (1 - this.SLIPPAGE_PERCENT);
+                    const trade = createTrade(barTime, exitPrice, 'MaxHold');
+                    trades.push(trade);
+                    equity.push({ time: barTime, value: currentEquity });
+                    position = null;
+                    continue;
+                }
+
                 if (this.isForceCloseTime(barTime)) {
                     const exitPrice = bar.close * (1 - this.SLIPPAGE_PERCENT);
                     const trade = createTrade(barTime, exitPrice, 'MarketClose');
@@ -229,10 +266,19 @@ export class BacktestEngine {
             const signal = signalMap.get(barTime);
             if (signal && signal.type === 'BUY' && position === null && this.isWithinMarketHours(barTime)) {
                 const entryPrice = signal.price * (1 + this.SLIPPAGE_PERCENT);
+                // v1.4.0: Extract SL/TP from signal indicators
+                const slPrice = signal.indicators['SL Price'] as number | undefined;
+                const tpPrice = signal.indicators['TP Price'] as number | undefined;
+                // v1.5.0: Extract max hold time (calculated from entry time + maxHoldMinutes)
+                const maxHoldMinutes = signal.indicators['Max Hold Min'] as number | undefined;
+                const maxExitTime = maxHoldMinutes ? barTime + (maxHoldMinutes * 60) : null;
                 position = {
                     entryTime: barTime,
                     entryPrice: entryPrice,
-                    indicators: signal.indicators
+                    indicators: signal.indicators,
+                    stopLoss: slPrice ?? null,
+                    takeProfit: tpPrice ?? null,
+                    maxExitTime: maxExitTime
                 };
             }
         }
@@ -403,7 +449,11 @@ export class BacktestEngine {
         const returns = trades.map(t => t.pnlPercent / 100);
         const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
         const stdDev = Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length);
-        const sharpeRatio = stdDev > 0 ? (avgReturn - this.RISK_FREE_RATE / 252) / stdDev : 0;
+        // Sharpe ratio: use minimum stdDev threshold to avoid divide-by-near-zero explosion
+        // Clamp to reasonable range [-100, 100]
+        const MIN_STD_DEV = 0.0001;  // Minimum standard deviation threshold
+        const rawSharpe = stdDev > MIN_STD_DEV ? (avgReturn - this.RISK_FREE_RATE / 252) / stdDev : 0;
+        const sharpeRatio = Math.max(-100, Math.min(100, rawSharpe));
 
         const winRateDecimal = winningTrades.length / trades.length;
         const expectancy = (winRateDecimal * avgWin) - ((1 - winRateDecimal) * avgLoss);
@@ -440,9 +490,12 @@ export class BacktestEngine {
         const returns = trades.map(t => t.pnlPercent / 100);
         const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
         const stdDev = Math.sqrt(returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length);
-        const annualizedSharpe = stdDev > 0
+        // Annualized Sharpe: use minimum stdDev threshold and clamp to [-100, 100]
+        const MIN_STD_DEV = 0.0001;
+        const rawAnnualizedSharpe = stdDev > MIN_STD_DEV
             ? (avgReturn * Math.sqrt(252) - this.RISK_FREE_RATE) / (stdDev * Math.sqrt(252))
             : 0;
+        const annualizedSharpe = Math.max(-100, Math.min(100, rawAnnualizedSharpe));
 
         return {
             ...metrics,

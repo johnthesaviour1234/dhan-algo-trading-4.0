@@ -3,7 +3,9 @@ import { Play, TrendingUp, TrendingDown, Activity, Target, BarChart3, DollarSign
 import { StrategyCard } from './StrategyCard';
 import { LiveTradingPanel } from './LiveTradingPanel';
 import { backtestDataFetcher, BacktestSymbolConfig } from '../lib/BacktestDataFetcher';
+import { Trade, Metrics } from '../lib/BacktestEngine';
 import { emaSimpleStrategy } from '../strategies/EMA_3_15_Simple';
+import { multiTFBreakoutStrategy } from '../strategies/Multi_TF_Breakout';
 import type { TradeCosts } from '../utils/BrokerageCalculator';
 
 export interface MetricData {
@@ -53,15 +55,38 @@ export interface HourlyPerformance {
   totalPnl: number;
 }
 
-// Simple exit reasons (only Signal and MarketClose for simple strategies)
+// Simple exit reasons (extended for all strategies)
 export interface SimpleExitReasons {
   signal: number;
   marketClose: number;
+  stopLoss?: number;    // For SL/TP strategies
+  takeProfit?: number;  // For SL/TP strategies
 }
 
 export interface AdvancedAnalytics {
   exitReasons: SimpleExitReasons;
   hourlyPerformance: HourlyPerformance[];
+  // v1.3.0: New analytics for loss analysis
+  durationAnalysis?: {
+    under1min: { trades: number; winRate: number; avgPnl: number };
+    between1and5min: { trades: number; winRate: number; avgPnl: number };
+    over5min: { trades: number; winRate: number; avgPnl: number };
+  };
+  grossVsNetAnalysis?: {
+    totalGrossPnl: number;
+    totalNetPnl: number;
+    totalCosts: number;
+    grossWinRate: number;
+    netWinRate: number;
+  };
+  marketConditionAnalysis?: {
+    avgEmaGapOnWinners: number;
+    avgEmaGapOnLosers: number;
+    tradesWithEmaGapUnder0_1: number;
+    tradesWithEmaGapOver0_1: number;
+    winRateWithEmaGapUnder0_1: number;
+    winRateWithEmaGapOver0_1: number;
+  };
 }
 
 export interface StrategyPerformance {
@@ -97,8 +122,13 @@ interface AvailableStrategy {
 const availableStrategies: AvailableStrategy[] = [
   {
     id: '1',
-    name: 'EMA 3/15 Simple v1.0.0',
+    name: `${emaSimpleStrategy.name} v${emaSimpleStrategy.version}`,
     type: 'simple',
+  },
+  {
+    id: '2',
+    name: `${multiTFBreakoutStrategy.name} v${multiTFBreakoutStrategy.version}`,
+    type: 'breakout',
   },
 ];
 
@@ -232,21 +262,45 @@ function BacktestingContent() {
           message: `Running ${strategy.name}... (${i + 1}/${selectedStrategies.length})`
         });
 
-        // Run the backtest via strategy (strategy owns the orchestration)
-        const { trades, metrics, analytics } = emaSimpleStrategy.runBacktest(
-          ohlcData,
-          undefined, // use default config
-          initialCapital // user-specified capital
-        );
+        // Run the appropriate strategy based on type
+        let trades: Trade[] = [];
+        let metrics: Metrics;
+        let advancedAnalytics: AdvancedAnalytics;
 
-        // Use analytics from strategy
-        const advancedAnalytics: AdvancedAnalytics = {
-          exitReasons: {
-            signal: trades.filter(t => t.exitReason === 'Signal').length,
-            marketClose: trades.filter(t => t.exitReason === 'MarketClose').length
-          },
-          hourlyPerformance: analytics.hourlyPerformance,
-        };
+        if (strategy.type === 'breakout') {
+          // Multi-TF Breakout Strategy
+          const result = multiTFBreakoutStrategy.runBacktest(ohlcData, undefined, initialCapital);
+          trades = result.trades;
+          metrics = result.metrics;
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+              stopLoss: result.analytics.exitReasons.stopLoss,
+              takeProfit: result.analytics.exitReasons.takeProfit,
+            },
+            hourlyPerformance: [],  // Can add hourly analysis later
+          };
+        } else {
+          // EMA Simple Strategy (default)
+          const result = emaSimpleStrategy.runBacktest(
+            ohlcData,
+            undefined, // use default config
+            initialCapital // user-specified capital
+          );
+          trades = result.trades;
+          metrics = result.metrics;
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length
+            },
+            hourlyPerformance: result.analytics.hourlyPerformance,
+            durationAnalysis: result.analytics.durationAnalysis,
+            grossVsNetAnalysis: result.analytics.grossVsNetAnalysis,
+            marketConditionAnalysis: result.analytics.marketConditionAnalysis,
+          };
+        }
 
         // Convert BacktestTrade to Trade interface
         const convertedTrades: Trade[] = trades.map(t => ({

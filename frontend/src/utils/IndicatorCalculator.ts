@@ -665,6 +665,53 @@ export class IndicatorCalculator {
     }
 
     /**
+     * Calculate all ATR (Average True Range) values for entire dataset - O(n)
+     * Uses Wilder's smoothing method (same as ADX)
+     * 
+     * @param highs - Array of high prices
+     * @param lows - Array of low prices
+     * @param closes - Array of close prices
+     * @param period - ATR period (default 14)
+     * @returns Array of ATR values for each bar, null if not enough data
+     */
+    static calculateAllATR(
+        highs: number[],
+        lows: number[],
+        closes: number[],
+        period: number = 14
+    ): (number | null)[] {
+        const len = highs.length;
+        const result: (number | null)[] = new Array(len).fill(null);
+
+        if (len < period + 1) return result;
+
+        // Calculate True Range for each bar
+        const trueRanges: number[] = [];
+        for (let i = 1; i < len; i++) {
+            const tr = Math.max(
+                highs[i] - lows[i],
+                Math.abs(highs[i] - closes[i - 1]),
+                Math.abs(lows[i] - closes[i - 1])
+            );
+            trueRanges.push(tr);
+        }
+
+        if (trueRanges.length < period) return result;
+
+        // First ATR is simple average of first 'period' TR values
+        let atr = trueRanges.slice(0, period).reduce((a, b) => a + b, 0) / period;
+        result[period] = atr; // First ATR at index 'period'
+
+        // Continue with Wilder's smoothing: ATR = ((prev ATR * (period-1)) + current TR) / period
+        for (let i = period; i < trueRanges.length; i++) {
+            atr = ((atr * (period - 1)) + trueRanges[i]) / period;
+            result[i + 1] = atr; // +1 because TR array is offset by 1
+        }
+
+        return result;
+    }
+
+    /**
      * Calculate all RSI values for entire dataset in a single pass - O(n)
      * Uses Wilder's smoothing method for accurate RSI calculation
      * 

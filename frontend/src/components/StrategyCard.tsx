@@ -13,7 +13,7 @@ interface StrategyCardProps {
 export function StrategyCard({ performance, onRemove, totalStrategies, dateRange }: StrategyCardProps) {
   const contribution = (100 / totalStrategies).toFixed(1);
   const [showTrades, setShowTrades] = useState(false);
-  const [viewMode, setViewMode] = useState<'trades' | 'calculations' | 'analytics'>('trades');
+  const [viewMode, setViewMode] = useState<'trades' | 'calculations'>('trades');
   const hasAdvancedAnalytics = performance.advancedAnalytics !== undefined;
 
   // Check if strategy supports calculations (EMA/SMA strategies)
@@ -51,9 +51,13 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
         yearly: performance.metrics.yearly,
         overall: performance.metrics.overall
       },
-      // Advanced analytics - simplified (only hourlyPerformance for simple strategies)
+      // Advanced analytics - includes v1.3.0 analytics for loss analysis
       advancedAnalytics: {
-        hourlyPerformance: performance.advancedAnalytics?.hourlyPerformance || []
+        hourlyPerformance: performance.advancedAnalytics?.hourlyPerformance || [],
+        // v1.3.0: New analytics for loss analysis
+        durationAnalysis: performance.advancedAnalytics?.durationAnalysis,
+        grossVsNetAnalysis: performance.advancedAnalytics?.grossVsNetAnalysis,
+        marketConditionAnalysis: performance.advancedAnalytics?.marketConditionAnalysis,
       },
       // Capital tracking
       capitalInfo: performance.capitalInfo || {
@@ -161,17 +165,7 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
               >
                 Calculations
               </button>
-              {hasAdvancedAnalytics && (
-                <button
-                  onClick={() => { setViewMode('analytics'); setShowTrades(true); }}
-                  className={`px-3 py-1.5 rounded-md text-sm transition-colors ${viewMode === 'analytics'
-                    ? 'bg-white text-green-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                >
-                  Analytics
-                </button>
-              )}
+
             </div>
           )}
           <button
@@ -224,6 +218,156 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
                 {performance.capitalInfo.returnPercent >= 0 ? '+' : ''}{performance.capitalInfo.returnPercent.toFixed(2)}%
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* v1.3.0: Duration Analysis */}
+      {performance.advancedAnalytics?.durationAnalysis && (
+        <div className="mb-4 p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
+          <div className="text-purple-700 font-medium mb-2 text-sm">📊 Duration Analysis</div>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div className="text-gray-500 text-xs">≤1 min</div>
+              <div className="text-gray-700 text-sm">{performance.advancedAnalytics.durationAnalysis.under1min.trades} trades</div>
+              <div className={`font-bold text-sm ${performance.advancedAnalytics.durationAnalysis.under1min.winRate > 5 ? 'text-green-600' : 'text-red-600'}`}>
+                {performance.advancedAnalytics.durationAnalysis.under1min.winRate.toFixed(1)}% win
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">1-5 min</div>
+              <div className="text-gray-700 text-sm">{performance.advancedAnalytics.durationAnalysis.between1and5min.trades} trades</div>
+              <div className={`font-bold text-sm ${performance.advancedAnalytics.durationAnalysis.between1and5min.winRate > 5 ? 'text-green-600' : 'text-red-600'}`}>
+                {performance.advancedAnalytics.durationAnalysis.between1and5min.winRate.toFixed(1)}% win
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">&gt;5 min</div>
+              <div className="text-gray-700 text-sm">{performance.advancedAnalytics.durationAnalysis.over5min.trades} trades</div>
+              <div className={`font-bold text-sm ${performance.advancedAnalytics.durationAnalysis.over5min.winRate > 5 ? 'text-green-600' : 'text-red-600'}`}>
+                {performance.advancedAnalytics.durationAnalysis.over5min.winRate.toFixed(1)}% win
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v1.3.0: Gross vs Net Analysis */}
+      {performance.advancedAnalytics?.grossVsNetAnalysis && (
+        <div className="mb-4 p-3 bg-gradient-to-r from-amber-50 to-yellow-50 rounded-lg border border-amber-200">
+          <div className="text-amber-700 font-medium mb-2 text-sm">💰 Gross vs Net Analysis</div>
+          <div className="grid grid-cols-5 gap-2 text-center text-sm">
+            <div>
+              <div className="text-gray-500 text-xs">Gross PnL</div>
+              <div className={`font-bold ${performance.advancedAnalytics.grossVsNetAnalysis.totalGrossPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                ₹{performance.advancedAnalytics.grossVsNetAnalysis.totalGrossPnl.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Costs</div>
+              <div className="text-orange-600 font-bold">
+                ₹{performance.advancedAnalytics.grossVsNetAnalysis.totalCosts.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Net PnL</div>
+              <div className={`font-bold ${performance.advancedAnalytics.grossVsNetAnalysis.totalNetPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                ₹{performance.advancedAnalytics.grossVsNetAnalysis.totalNetPnl.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Gross Win%</div>
+              <div className="text-gray-700 font-bold">{performance.advancedAnalytics.grossVsNetAnalysis.grossWinRate.toFixed(1)}%</div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Net Win%</div>
+              <div className="text-gray-700 font-bold">{performance.advancedAnalytics.grossVsNetAnalysis.netWinRate.toFixed(1)}%</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v1.3.0: Market Condition Analysis */}
+      {performance.advancedAnalytics?.marketConditionAnalysis && (
+        <div className="mb-4 p-3 bg-gradient-to-r from-cyan-50 to-teal-50 rounded-lg border border-cyan-200">
+          <div className="text-cyan-700 font-medium mb-2 text-sm">🌊 Market Condition Analysis (EMA Gap)</div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="text-center p-2 bg-red-50 rounded border border-red-200">
+              <div className="text-red-700 text-xs font-medium">Sideways (Gap &lt; 0.1%)</div>
+              <div className="text-gray-700 text-sm">{performance.advancedAnalytics.marketConditionAnalysis.tradesWithEmaGapUnder0_1} trades</div>
+              <div className={`font-bold ${performance.advancedAnalytics.marketConditionAnalysis.winRateWithEmaGapUnder0_1 > 10 ? 'text-green-600' : 'text-red-600'}`}>
+                {performance.advancedAnalytics.marketConditionAnalysis.winRateWithEmaGapUnder0_1.toFixed(1)}% win rate
+              </div>
+            </div>
+            <div className="text-center p-2 bg-green-50 rounded border border-green-200">
+              <div className="text-green-700 text-xs font-medium">Trending (Gap ≥ 0.1%)</div>
+              <div className="text-gray-700 text-sm">{performance.advancedAnalytics.marketConditionAnalysis.tradesWithEmaGapOver0_1} trades</div>
+              <div className={`font-bold ${performance.advancedAnalytics.marketConditionAnalysis.winRateWithEmaGapOver0_1 > 10 ? 'text-green-600' : 'text-red-600'}`}>
+                {performance.advancedAnalytics.marketConditionAnalysis.winRateWithEmaGapOver0_1.toFixed(1)}% win rate
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Exit Reason Breakdown - inline */}
+      {performance.advancedAnalytics?.exitReasons && (
+        <div className="mb-4 p-3 bg-gradient-to-r from-orange-50 to-red-50 rounded-lg border border-orange-200">
+          <div className="text-orange-700 font-medium mb-2 text-sm">🚪 Exit Reasons</div>
+          <div className="grid grid-cols-4 gap-2 text-center text-sm">
+            <div>
+              <div className="text-gray-500 text-xs">Signal</div>
+              <div className="text-blue-600 font-bold">{performance.advancedAnalytics.exitReasons.signal || 0}</div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Market Close</div>
+              <div className="text-purple-600 font-bold">{performance.advancedAnalytics.exitReasons.marketClose || 0}</div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Stop Loss</div>
+              <div className="text-red-600 font-bold">{(performance.advancedAnalytics.exitReasons as any).stopLoss || 0}</div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Take Profit</div>
+              <div className="text-green-600 font-bold">{(performance.advancedAnalytics.exitReasons as any).takeProfit || 0}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hourly Performance - inline */}
+      {performance.advancedAnalytics?.hourlyPerformance && performance.advancedAnalytics.hourlyPerformance.length > 0 && (
+        <div className="mb-4 p-3 bg-gradient-to-r from-slate-50 to-gray-50 rounded-lg border border-slate-200">
+          <div className="text-slate-700 font-medium mb-2 text-sm">⏰ Hourly Performance (IST)</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-1 px-2">Hour</th>
+                  <th className="text-right py-1 px-2">Trades</th>
+                  <th className="text-right py-1 px-2">Win%</th>
+                  <th className="text-right py-1 px-2">Avg P&L</th>
+                  <th className="text-right py-1 px-2">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {performance.advancedAnalytics.hourlyPerformance.filter(h => h.trades > 0).map(hp => (
+                  <tr key={hp.hour} className="border-b border-gray-100">
+                    <td className="py-1 px-2 text-gray-700">{hp.hour}</td>
+                    <td className="py-1 px-2 text-right">{hp.trades}</td>
+                    <td className={`py-1 px-2 text-right ${hp.winRate >= 50 ? 'text-green-600' : 'text-red-600'}`}>
+                      {hp.winRate.toFixed(1)}%
+                    </td>
+                    <td className={`py-1 px-2 text-right ${hp.avgPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      ₹{hp.avgPnl.toFixed(2)}
+                    </td>
+                    <td className={`py-1 px-2 text-right ${hp.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      ₹{hp.totalPnl.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -435,66 +579,7 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
         )
       )}
 
-      {/* Advanced Analytics */}
-      {showTrades && viewMode === 'analytics' && hasAdvancedAnalytics && performance.advancedAnalytics && (
-        <div className="border-t border-gray-200 pt-6 space-y-6">
-          <h5 className="text-gray-900">Advanced Analytics</h5>
 
-          {/* Exit Reasons */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h6 className="text-gray-700 mb-3">Exit Reason Breakdown</h6>
-            <div className="grid grid-cols-5 gap-3">
-              <div className="bg-white rounded p-3 border border-gray-200 text-center">
-                <div className="text-gray-600 text-sm">Signal</div>
-                <div className="text-blue-600 font-medium">{performance.advancedAnalytics?.exitReasons?.signal || 0}</div>
-              </div>
-              <div className="bg-white rounded p-3 border border-gray-200 text-center">
-                <div className="text-gray-600 text-sm">Market Close</div>
-                <div className="text-purple-600 font-medium">{performance.advancedAnalytics?.exitReasons?.marketClose || 0}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Hourly Performance */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h6 className="text-gray-700 mb-3">Hourly Performance (IST)</h6>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-2 px-3">Hour</th>
-                    <th className="text-right py-2 px-3">Trades</th>
-                    <th className="text-right py-2 px-3">Win Rate</th>
-                    <th className="text-right py-2 px-3">Avg P&L</th>
-                    <th className="text-right py-2 px-3">Total P&L</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {performance.advancedAnalytics.hourlyPerformance.filter(h => h.trades > 0).map(hp => (
-                    <tr key={hp.hour} className="border-b border-gray-100">
-                      <td className="py-2 px-3 text-gray-700">{hp.hour}</td>
-                      <td className="py-2 px-3 text-right">{hp.trades}</td>
-                      <td className={`py-2 px-3 text-right ${hp.winRate >= 50 ? 'text-green-600' : 'text-red-600'}`}>
-                        {hp.winRate.toFixed(1)}%
-                      </td>
-                      <td className={`py-2 px-3 text-right ${hp.avgPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        ₹{hp.avgPnl.toFixed(2)}
-                      </td>
-                      <td className={`py-2 px-3 text-right ${hp.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        ₹{hp.totalPnl.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-
-          {/* Note: Monte Carlo, Profit Distribution, and Slippage Sensitivity
-              removed for simple strategies - only used for advanced strategies */}
-        </div>
-      )}
     </div>
   );
 }
