@@ -103,6 +103,7 @@ export interface StrategyPerformance {
   };
   trades: Trade[];
   calculations?: import('../types/CalculationRow').CalculationRow[];
+  htfCalculations?: import('../types/HTFCalculationRow').HTFCalculationRow[];
   advancedAnalytics?: AdvancedAnalytics;
   capitalInfo?: {
     initialCapital: number;
@@ -267,11 +268,14 @@ function BacktestingContent() {
         let metrics: Metrics;
         let advancedAnalytics: AdvancedAnalytics;
 
+        let htfCalculations: import('../types/HTFCalculationRow').HTFCalculationRow[] | undefined;
+
         if (strategy.type === 'breakout') {
           // Multi-TF Breakout Strategy
           const result = multiTFBreakoutStrategy.runBacktest(ohlcData, undefined, initialCapital);
           trades = result.trades;
           metrics = result.metrics;
+          htfCalculations = result.calculations;
           advancedAnalytics = {
             exitReasons: {
               signal: trades.filter(t => t.exitReason === 'Signal').length,
@@ -319,6 +323,7 @@ function BacktestingContent() {
           metrics: metrics,
           trades: convertedTrades,
           advancedAnalytics: advancedAnalytics,
+          htfCalculations: htfCalculations,
           capitalInfo: {
             initialCapital,
             finalCapital: parseFloat(finalCapital.toFixed(2)),

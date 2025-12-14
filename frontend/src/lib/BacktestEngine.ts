@@ -104,21 +104,20 @@ export class BacktestEngine {
     }
 
     /**
-     * Check if time is within trading hours (9:30 AM - 2:30 PM IST)
+     * Check if time is within trading hours (9:15 AM - 2:15 PM IST)
      */
     isWithinMarketHours(unixTimestamp: number): boolean {
         const istMinutes = this.getISTTimeInMinutes(unixTimestamp);
-        return istMinutes >= 570 && istMinutes < 870;
+        return istMinutes >= 555 && istMinutes < 855;  // 555 = 9:15, 855 = 14:15
     }
 
     /**
-     * Check if time is at market close (2:30 PM IST)
+     * Check if time is at market close (2:15 PM IST)
      */
     private isForceCloseTime(unixTimestamp: number): boolean {
         const istMinutes = this.getISTTimeInMinutes(unixTimestamp);
-        return istMinutes >= 870;
+        return istMinutes >= 855;  // 855 = 14:15
     }
-
     /**
      * Simulate trades from signals
      * Generic: BUY opens position, SELL or market close exits

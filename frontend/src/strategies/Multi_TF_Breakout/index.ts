@@ -14,6 +14,7 @@ import { CandlestickData } from 'lightweight-charts';
 import { BaseStrategy, Signal, BaseTrade, BasicMetrics } from '../BaseStrategy';
 import { MultiTFBreakoutConfig, MultiTFBreakoutAnalytics, MultiTFBreakoutExport, HTFLevels, DEFAULT_CONFIG } from './types';
 import { backtestEngine, Trade, Metrics } from '../../lib/BacktestEngine';
+import type { HTFCalculationRow } from '../../types/HTFCalculationRow';
 
 export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConfig, MultiTFBreakoutAnalytics, MultiTFBreakoutExport> {
     readonly name = 'Multi-TF Breakout';
@@ -35,6 +36,11 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
     /**
      * Detect if a new hour/day/week/month has started
      * Note: Timestamps are UTC, JavaScript Date converts to local time automatically
+     * 
+     * Hourly boundaries are MARKET-ALIGNED:
+     * - 9:15 AM - 10:14 AM (Hour 1)
+     * - 10:15 AM - 11:14 AM (Hour 2)
+     * - etc.
      */
     private detectTimeframeBoundaries(prevDate: Date | null, currDate: Date): {
         new1H: boolean;
@@ -46,9 +52,27 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
             return { new1H: true, newDay: true, newWeek: true, newMonth: true };
         }
 
-        // Use local time (already in IST if system is set to IST)
-        // Don't double-convert!
-        const new1H = currDate.getHours() !== prevDate.getHours();
+        // Market-aligned hourly candles (9:15-10:14, 10:15-11:14, etc.)
+        // A new hour starts when minute crosses from :14 to :15
+        const MARKET_OPEN_MINUTE = 15;  // Market opens at :15
+
+        // Calculate which "market hour" each timestamp belongs to
+        // e.g., 9:15-10:14 = hour 0, 10:15-11:14 = hour 1, etc.
+        const getMarketHour = (d: Date) => {
+            const hour = d.getHours();
+            const minute = d.getMinutes();
+            // If minute < 15, we're still in the previous market hour
+            if (minute < MARKET_OPEN_MINUTE) {
+                return hour - 1;
+            }
+            return hour;
+        };
+
+        const prevMarketHour = getMarketHour(prevDate);
+        const currMarketHour = getMarketHour(currDate);
+        const new1H = currMarketHour !== prevMarketHour;
+
+        // Daily boundary (crosses midnight)
         const newDay = currDate.getDate() !== prevDate.getDate() ||
             currDate.getMonth() !== prevDate.getMonth() ||
             currDate.getFullYear() !== prevDate.getFullYear();
@@ -83,13 +107,27 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
 
     /**
      * Generate trading signals from OHLC data
+     * Also generates calculation rows for UI display
      */
     generateSignals(ohlcData: CandlestickData[], config: MultiTFBreakoutConfig = DEFAULT_CONFIG): Signal[] {
+        const { signals } = this.generateSignalsWithCalculations(ohlcData, config);
+        return signals;
+    }
+
+    /**
+     * Generate trading signals AND calculation rows from OHLC data
+     * Returns both for UI display (last 500 rows) and backtest execution
+     */
+    generateSignalsWithCalculations(
+        ohlcData: CandlestickData[],
+        config: MultiTFBreakoutConfig = DEFAULT_CONFIG
+    ): { signals: Signal[]; calculations: HTFCalculationRow[] } {
         const signals: Signal[] = [];
+        const calculations: HTFCalculationRow[] = [];
 
         if (ohlcData.length < 100) {
             console.warn(`⚠️ [Multi-TF Breakout v1.0.0] Not enough data: ${ohlcData.length} bars`);
-            return signals;
+            return { signals, calculations };
         }
 
         console.log(`📊 [Multi-TF Breakout v1.0.0] Processing ${ohlcData.length} bars...`);
@@ -113,18 +151,28 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
         // Reset mechanism tracking
         let longIsReset = true;
         let shortIsReset = true;
-        let isInLongPosition = false;
-        let isInShortPosition = false;
 
         let prevDate: Date | null = null;
         let debugCount = 0;
         let conditionsMet = 0;
         let withinWindowCount = 0;
 
+        // Helper to format date for display
+        const formatDateTime = (d: Date) => {
+            const day = d.getDate();
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const month = months[d.getMonth()];
+            const year = d.getFullYear();
+            const hours = d.getHours().toString().padStart(2, '0');
+            const mins = d.getMinutes().toString().padStart(2, '0');
+            return `${day} ${month} ${year}, ${hours}:${mins}`;
+        };
+
         for (let i = 0; i < ohlcData.length; i++) {
             const bar = ohlcData[i];
             const barTime = bar.time as number;
             const barDate = new Date(barTime * 1000);
+            const open = bar.open;
             const high = bar.high;
             const low = bar.low;
             const close = bar.close;
@@ -184,130 +232,195 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
             const allLevelsReady = levels.prev1HReady && levels.prevDayReady &&
                 levels.prevWeekReady && levels.prevMonthReady;
 
-            if (!allLevelsReady) {
-                prevDate = barDate;
-                continue;
-            }
+            // Conditions
+            const closeAbove1HHigh = allLevelsReady && close > levels.prev1HHigh!;
+            const closeAboveDayHigh = allLevelsReady && close > levels.prevDayHigh!;
+            const closeAboveWeekHigh = allLevelsReady && close > levels.prevWeekHigh!;
+            const closeAboveMonthHigh = allLevelsReady && close > levels.prevMonthHigh!;
+            const closeAboveAllHighs = closeAbove1HHigh && closeAboveDayHigh && closeAboveWeekHigh && closeAboveMonthHigh;
 
-            // ============= LONG ENTRY CONDITIONS =============
-            const closeAboveAll = close > levels.prev1HHigh! &&
-                close > levels.prevDayHigh! &&
-                close > levels.prevWeekHigh! &&
-                close > levels.prevMonthHigh!;
+            const closeBelow1HLow = allLevelsReady && close < levels.prev1HLow!;
+            const closeBelowDayLow = allLevelsReady && close < levels.prevDayLow!;
+            const closeBelowWeekLow = allLevelsReady && close < levels.prevWeekLow!;
+            const closeBelowMonthLow = allLevelsReady && close < levels.prevMonthLow!;
+            const closeBelowAllLows = closeBelow1HLow && closeBelowDayLow && closeBelowWeekLow && closeBelowMonthLow;
 
-            // ============= SHORT ENTRY CONDITIONS =============
-            const closeBelowAll = close < levels.prev1HLow! &&
-                close < levels.prevDayLow! &&
-                close < levels.prevWeekLow! &&
-                close < levels.prevMonthLow!;
-
-            // Debug: Count how many times conditions are met
-            if (closeAboveAll || closeBelowAll) {
+            // Debug count
+            if (closeAboveAllHighs || closeBelowAllLows) {
                 conditionsMet++;
             }
 
             // ============= RESET MECHANISM =============
-            // Long reset: Price breaks below ANY level
-            const longResetTrigger = close < levels.prev1HHigh! || close < levels.prevDayHigh! ||
+            const longPullbackOccurred = allLevelsReady && (
+                close < levels.prev1HHigh! || close < levels.prevDayHigh! ||
                 close < levels.prevWeekHigh! || close < levels.prevMonthHigh! ||
                 close < levels.prev1HLow! || close < levels.prevDayLow! ||
-                close < levels.prevWeekLow! || close < levels.prevMonthLow!;
+                close < levels.prevWeekLow! || close < levels.prevMonthLow!
+            );
 
-            // Short reset: Price breaks above ANY level  
-            const shortResetTrigger = close > levels.prev1HHigh! || close > levels.prevDayHigh! ||
+            const shortPullbackOccurred = allLevelsReady && (
+                close > levels.prev1HHigh! || close > levels.prevDayHigh! ||
                 close > levels.prevWeekHigh! || close > levels.prevMonthHigh! ||
                 close > levels.prev1HLow! || close > levels.prevDayLow! ||
-                close > levels.prevWeekLow! || close > levels.prevMonthLow!;
+                close > levels.prevWeekLow! || close > levels.prevMonthLow!
+            );
 
-            // Update reset status
-            if (!isInLongPosition && !longIsReset && longResetTrigger) {
+            if (!longIsReset && longPullbackOccurred) {
                 longIsReset = true;
             }
-            if (!isInShortPosition && !shortIsReset && shortResetTrigger) {
+            if (!shortIsReset && shortPullbackOccurred) {
                 shortIsReset = true;
             }
 
             // ============= CALCULATE SL/TP =============
-            const longStopLoss = levels.prev1HLow!;
-            const longRisk = close - longStopLoss;
-            const longTargetPrice = close + (longRisk * config.params.riskRewardRatio);
+            const longStopLoss = allLevelsReady ? levels.prev1HLow! : null;
+            const longRisk = allLevelsReady ? close - levels.prev1HLow! : 0;
+            const longTargetPrice = allLevelsReady && longRisk > 0
+                ? close + (longRisk * config.params.riskRewardRatio)
+                : null;
 
-            const shortStopLoss = levels.prev1HHigh!;
-            const shortRisk = shortStopLoss - close;
-            const shortTargetPrice = close - (shortRisk * config.params.riskRewardRatio);
-
-            // Build indicators
-            const indicators: Record<string, number | boolean | string> = {
-                'Prev 1H High': levels.prev1HHigh!,
-                'Prev 1H Low': levels.prev1HLow!,
-                'Prev Day High': levels.prevDayHigh!,
-                'Prev Day Low': levels.prevDayLow!,
-                'Prev Week High': levels.prevWeekHigh!,
-                'Prev Week Low': levels.prevWeekLow!,
-                'Prev Month High': levels.prevMonthHigh!,
-                'Prev Month Low': levels.prevMonthLow!,
-                'Long Reset': longIsReset,
-                'Short Reset': shortIsReset,
-                'All Levels Ready': allLevelsReady,
-            };
+            const shortStopLoss = allLevelsReady ? levels.prev1HHigh! : null;
+            const shortRisk = allLevelsReady ? levels.prev1HHigh! - close : 0;
+            const shortTargetPrice = allLevelsReady && shortRisk > 0
+                ? close - (shortRisk * config.params.riskRewardRatio)
+                : null;
 
             // Check if within trading window
             const withinWindow = this.isWithinTradingWindow(barDate, config);
             if (withinWindow) withinWindowCount++;
 
-            // ============= GENERATE SIGNALS =============
-            if (withinWindow && !isInLongPosition && !isInShortPosition) {
-                // LONG entry
+            // Determine signal and blocked status
+            let signal: 'BUY' | 'SELL' | 'NONE' = 'NONE';
+            let signalBlocked = false;
+            let blockedReason: string | undefined;
+
+            if (withinWindow && allLevelsReady) {
+                // LONG entry check
                 if ((config.direction === 'long' || config.direction === 'both') &&
-                    closeAboveAll && longRisk > 0 && longIsReset) {
+                    closeAboveAllHighs && longRisk > 0) {
+                    if (longIsReset) {
+                        signal = 'BUY';
+                        longIsReset = false;
 
-                    // Debug first signal
-                    if (signals.length === 0) {
-                        console.log(`🎯 [Multi-TF Breakout] First LONG signal at ${barDate.toISOString()}`);
-                        console.log(`   Close=${close}, 1H=${levels.prev1HHigh}, Day=${levels.prevDayHigh}, Week=${levels.prevWeekHigh}, Month=${levels.prevMonthHigh}`);
+                        // Debug first few signals
+                        if (signals.length < 5) {
+                            console.log(`🎯 [Multi-TF Breakout] Signal #${signals.length + 1} at ${barDate.toISOString()}`);
+                        }
+
+                        signals.push({
+                            time: barTime,
+                            type: 'BUY',
+                            price: close,
+                            indicators: {
+                                'Prev 1H High': levels.prev1HHigh!,
+                                'Prev 1H Low': levels.prev1HLow!,
+                                'Prev Day High': levels.prevDayHigh!,
+                                'Prev Day Low': levels.prevDayLow!,
+                                'Prev Week High': levels.prevWeekHigh!,
+                                'Prev Week Low': levels.prevWeekLow!,
+                                'Prev Month High': levels.prevMonthHigh!,
+                                'Prev Month Low': levels.prevMonthLow!,
+                                'Long Reset': true,
+                                'Short Reset': shortIsReset,
+                                'All Levels Ready': true,
+                                'SL Price': parseFloat(longStopLoss!.toFixed(2)),
+                                'TP Price': parseFloat(longTargetPrice!.toFixed(2)),
+                                'Signal': 'BUY',
+                            }
+                        });
+                    } else {
+                        signalBlocked = true;
+                        blockedReason = 'Waiting for pullback';
+                        if (debugCount < 5) {
+                            debugCount++;
+                            console.log(`🚫 [Multi-TF Breakout] Entry BLOCKED at ${barDate.toISOString().slice(0, 16)} - waiting for pullback`);
+                        }
                     }
-
-                    signals.push({
-                        time: barTime,
-                        type: 'BUY',
-                        price: close,
-                        indicators: {
-                            ...indicators,
-                            'SL Price': parseFloat(longStopLoss.toFixed(2)),
-                            'TP Price': parseFloat(longTargetPrice.toFixed(2)),
-                            'Signal': 'BUY',
-                        }
-                    });
-                    isInLongPosition = true;
-                    longIsReset = false;
                 }
-                // SHORT entry (only if direction allows)
+                // SHORT entry check
                 else if ((config.direction === 'short' || config.direction === 'both') &&
-                    closeBelowAll && shortRisk > 0 && shortIsReset) {
-                    signals.push({
-                        time: barTime,
-                        type: 'SELL',
-                        price: close,
-                        indicators: {
-                            ...indicators,
-                            'SL Price': parseFloat(shortStopLoss.toFixed(2)),
-                            'TP Price': parseFloat(shortTargetPrice.toFixed(2)),
-                            'Signal': 'SELL (Short Entry)',
-                        }
-                    });
-                    isInShortPosition = true;
-                    shortIsReset = false;
+                    closeBelowAllLows && shortRisk > 0) {
+                    if (shortIsReset) {
+                        signal = 'SELL';
+                        shortIsReset = false;
+
+                        signals.push({
+                            time: barTime,
+                            type: 'SELL',
+                            price: close,
+                            indicators: {
+                                'Prev 1H High': levels.prev1HHigh!,
+                                'Prev 1H Low': levels.prev1HLow!,
+                                'Prev Day High': levels.prevDayHigh!,
+                                'Prev Day Low': levels.prevDayLow!,
+                                'Prev Week High': levels.prevWeekHigh!,
+                                'Prev Week Low': levels.prevWeekLow!,
+                                'Prev Month High': levels.prevMonthHigh!,
+                                'Prev Month Low': levels.prevMonthLow!,
+                                'Long Reset': longIsReset,
+                                'Short Reset': true,
+                                'All Levels Ready': true,
+                                'SL Price': parseFloat(shortStopLoss!.toFixed(2)),
+                                'TP Price': parseFloat(shortTargetPrice!.toFixed(2)),
+                                'Signal': 'SELL (Short Entry)',
+                            }
+                        });
+                    } else {
+                        signalBlocked = true;
+                        blockedReason = 'Waiting for pullback';
+                    }
                 }
             }
 
-            // Reset position tracking on SL hit (for signal generation purposes)
-            if (isInLongPosition && close < levels.prev1HLow!) {
-                isInLongPosition = false;
-            }
-            if (isInShortPosition && close > levels.prev1HHigh!) {
-                isInShortPosition = false;
-            }
+            // ============= BUILD CALCULATION ROW =============
+            const calcRow: HTFCalculationRow = {
+                timestamp: barTime,
+                time: formatDateTime(barDate),
+                open, high, low, close,
 
+                prev1HHigh: levels.prev1HHigh,
+                prev1HLow: levels.prev1HLow,
+                prevDayHigh: levels.prevDayHigh,
+                prevDayLow: levels.prevDayLow,
+                prevWeekHigh: levels.prevWeekHigh,
+                prevWeekLow: levels.prevWeekLow,
+                prevMonthHigh: levels.prevMonthHigh,
+                prevMonthLow: levels.prevMonthLow,
+
+                curr1HHigh: levels.curr1HHigh,
+                curr1HLow: levels.curr1HLow,
+
+                closeAbove1HHigh,
+                closeAboveDayHigh,
+                closeAboveWeekHigh,
+                closeAboveMonthHigh,
+                closeAboveAllHighs,
+
+                closeBelow1HLow,
+                closeBelowDayLow,
+                closeBelowWeekLow,
+                closeBelowMonthLow,
+                closeBelowAllLows,
+
+                new1H: boundaries.new1H,
+                newDay: boundaries.newDay,
+                newWeek: boundaries.newWeek,
+                newMonth: boundaries.newMonth,
+
+                allLevelsReady,
+                longIsReset,
+                shortIsReset,
+                withinTradingWindow: withinWindow,
+
+                slPrice: longStopLoss,
+                tpPrice: longTargetPrice,
+
+                signal,
+                signalBlocked,
+                blockedReason,
+            };
+
+            calculations.push(calcRow);
             prevDate = barDate;
         }
 
@@ -315,12 +428,13 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
         console.log(`📊 [Multi-TF Breakout] Level Readiness: 1H=${levels.prev1HReady}, Day=${levels.prevDayReady}, Week=${levels.prevWeekReady}, Month=${levels.prevMonthReady}`);
         console.log(`📊 [Multi-TF Breakout] Bars in trading window: ${withinWindowCount}`);
         console.log(`📊 [Multi-TF Breakout] Entry conditions met: ${conditionsMet} times`);
+        console.log(`📊 [Multi-TF Breakout] Entries blocked (logged): ${debugCount}`);
         if (levels.prev1HReady && levels.prevDayReady && levels.prevWeekReady && levels.prevMonthReady) {
             console.log(`📊 [Multi-TF Breakout] Final Levels: 1H High=${levels.prev1HHigh?.toFixed(2)}, Day High=${levels.prevDayHigh?.toFixed(2)}, Week High=${levels.prevWeekHigh?.toFixed(2)}, Month High=${levels.prevMonthHigh?.toFixed(2)}`);
         }
 
-        console.log(`📊 [Multi-TF Breakout v1.0.0] Generated ${signals.length} signals`);
-        return signals;
+        console.log(`📊 [Multi-TF Breakout v1.0.0] Generated ${signals.length} signals, ${calculations.length} calculation rows`);
+        return { signals, calculations };
     }
 
     /**
@@ -428,12 +542,16 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
         trades: Trade[];
         metrics: Metrics;
         analytics: MultiTFBreakoutAnalytics;
+        calculations: HTFCalculationRow[];
     } {
         console.log(`🚀 [Multi-TF Breakout] Running backtest with ${ohlcData.length} bars, ₹${initialCapital} capital`);
 
-        // Step 1: Strategy generates signals
-        const signals = this.generateSignals(ohlcData, config);
-        console.log(`📊 [Multi-TF Breakout] Generated ${signals.length} signals`);
+        // Step 1: Strategy generates signals AND calculations
+        const { signals, calculations: allCalculations } = this.generateSignalsWithCalculations(ohlcData, config);
+        console.log(`📊 [Multi-TF Breakout] Generated ${signals.length} signals, ${allCalculations.length} calculation rows`);
+
+        // Keep only last 500 calculation rows for UI display
+        const calculations = allCalculations.slice(-500);
 
         // Step 2: Engine simulates trades
         const backtestConfig = { initialCapital, quantity: 1 };
@@ -465,7 +583,7 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
 
         const analytics = this.calculateAnalytics(baseTrades);
 
-        return { trades, metrics, analytics };
+        return { trades, metrics, analytics, calculations };
     }
 }
 

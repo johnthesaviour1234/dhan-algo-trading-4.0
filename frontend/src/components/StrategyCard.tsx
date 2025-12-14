@@ -2,6 +2,7 @@ import { Trash2, PieChart, Download } from 'lucide-react';
 import type { StrategyPerformance } from './BacktestingPanel';
 import { useState } from 'react';
 import { CalculationsTable } from './CalculationsTable';
+import { HTFCalculationsTable } from './HTFCalculationsTable';
 
 interface StrategyCardProps {
   performance: StrategyPerformance;
@@ -16,11 +17,14 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
   const [viewMode, setViewMode] = useState<'trades' | 'calculations'>('trades');
   const hasAdvancedAnalytics = performance.advancedAnalytics !== undefined;
 
-  // Check if strategy supports calculations (EMA/SMA strategies)
+  // Check if strategy supports calculations
   const strategyType = performance.strategyName.includes('EMA') ? 'EMA' :
     performance.strategyName.includes('SMA') ? 'SMA' : null;
-  const isCalculationStrategy = strategyType !== null;  // Show tabs for EMA/SMA strategies
+  const isEMAStrategy = strategyType !== null;
+  const isBreakoutStrategy = performance.strategyType === 'breakout';
+  const isCalculationStrategy = isEMAStrategy || isBreakoutStrategy;
   const hasCalculationData = performance.calculations && performance.calculations.length > 0;
+  const hasHTFCalculationData = performance.htfCalculations && performance.htfCalculations.length > 0;
 
   // Download analytics function
   const downloadAnalytics = () => {
@@ -561,22 +565,37 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
         </div>
       )}
 
-      {/* Real-Time Calculations */}
+      {/* Real-Time Calculations / HTF Calculations */}
       {showTrades && viewMode === 'calculations' && isCalculationStrategy && (
-        hasCalculationData ? (
-          <CalculationsTable
-            calculations={performance.calculations!}
-            strategyType={strategyType!}
-          />
-        ) : (
-          <div className="border-t border-gray-200 pt-6">
-            <h5 className="text-gray-900 mb-4">Real-Time Calculations</h5>
-            <div className="text-center py-8 text-gray-500">
-              Waiting for strategy to generate calculations...
-              <p className="text-sm mt-2">Calculations will appear as candles complete.</p>
+        isBreakoutStrategy ? (
+          // HTF Calculations for breakout strategies
+          hasHTFCalculationData ? (
+            <HTFCalculationsTable calculations={performance.htfCalculations!} />
+          ) : (
+            <div className="border-t border-gray-200 pt-6">
+              <h5 className="text-gray-900 mb-4">HTF Calculations</h5>
+              <div className="text-center py-8 text-gray-500">
+                No HTF calculation data available. Run a backtest first.
+              </div>
             </div>
-          </div>
-        )
+          )
+        ) : isEMAStrategy ? (
+          // EMA/SMA Calculations
+          hasCalculationData ? (
+            <CalculationsTable
+              calculations={performance.calculations!}
+              strategyType={strategyType!}
+            />
+          ) : (
+            <div className="border-t border-gray-200 pt-6">
+              <h5 className="text-gray-900 mb-4">Real-Time Calculations</h5>
+              <div className="text-center py-8 text-gray-500">
+                Waiting for strategy to generate calculations...
+                <p className="text-sm mt-2">Calculations will appear as candles complete.</p>
+              </div>
+            </div>
+          )
+        ) : null
       )}
 
 
