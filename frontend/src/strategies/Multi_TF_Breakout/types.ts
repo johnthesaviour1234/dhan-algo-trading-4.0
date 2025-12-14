@@ -82,6 +82,15 @@ export interface MultiTFBreakoutAnalytics {
         tradesAfterReset: number;
         tradesSkippedNoReset: number;
     };
+
+    // HOD/LOD formation stats
+    hodLodStats: {
+        maxHODCount: number;    // Max new highs formed in any single day
+        maxLODCount: number;    // Max new lows formed in any single day
+        avgHODCount: number;    // Average new highs per day
+        avgLODCount: number;    // Average new lows per day
+        totalDays: number;      // Total trading days analyzed
+    };
 }
 
 // Export format

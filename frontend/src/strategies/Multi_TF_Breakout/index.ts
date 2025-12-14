@@ -117,17 +117,41 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
     /**
      * Generate trading signals AND calculation rows from OHLC data
      * Returns both for UI display (last 500 rows) and backtest execution
+     * Also returns HOD/LOD stats for analytics
      */
     generateSignalsWithCalculations(
         ohlcData: CandlestickData[],
         config: MultiTFBreakoutConfig = DEFAULT_CONFIG
-    ): { signals: Signal[]; calculations: HTFCalculationRow[] } {
+    ): {
+        signals: Signal[];
+        calculations: HTFCalculationRow[];
+        hodLodStats: {
+            maxHODCount: number;
+            maxLODCount: number;
+            avgHODCount: number;
+            avgLODCount: number;
+            totalDays: number;
+        };
+    } {
         const signals: Signal[] = [];
         const calculations: HTFCalculationRow[] = [];
 
+        // HOD/LOD tracking per day
+        const dailyHODCounts: number[] = [];
+        const dailyLODCounts: number[] = [];
+        let currentDayHOD = 0;       // Running high of current day
+        let currentDayLOD = Infinity; // Running low of current day
+        let currentDayHODCount = 0;
+        let currentDayLODCount = 0;
+        let currentDayDateStr = '';  // To detect day change
+
         if (ohlcData.length < 100) {
             console.warn(`⚠️ [Multi-TF Breakout v1.0.0] Not enough data: ${ohlcData.length} bars`);
-            return { signals, calculations };
+            return {
+                signals,
+                calculations,
+                hodLodStats: { maxHODCount: 0, maxLODCount: 0, avgHODCount: 0, avgLODCount: 0, totalDays: 0 }
+            };
         }
 
         console.log(`📊 [Multi-TF Breakout v1.0.0] Processing ${ohlcData.length} bars...`);
@@ -168,6 +192,9 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
             return `${day} ${month} ${year}, ${hours}:${mins}`;
         };
 
+        // Helper to get date string for day comparison
+        const getDateStr = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+
         for (let i = 0; i < ohlcData.length; i++) {
             const bar = ohlcData[i];
             const barTime = bar.time as number;
@@ -176,6 +203,37 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
             const high = bar.high;
             const low = bar.low;
             const close = bar.close;
+            const barDateStr = getDateStr(barDate);
+
+            // ============= HOD/LOD TRACKING =============
+            // Detect day change and save previous day's counts
+            if (currentDayDateStr !== '' && barDateStr !== currentDayDateStr) {
+                // Save previous day's counts
+                dailyHODCounts.push(currentDayHODCount);
+                dailyLODCounts.push(currentDayLODCount);
+                // Reset for new day
+                currentDayHOD = high;
+                currentDayLOD = low;
+                currentDayHODCount = 1;  // First bar of day is initial HOD/LOD
+                currentDayLODCount = 1;
+            } else if (currentDayDateStr === '') {
+                // First bar ever - initialize
+                currentDayHOD = high;
+                currentDayLOD = low;
+                currentDayHODCount = 1;
+                currentDayLODCount = 1;
+            } else {
+                // Same day - check for new HOD/LOD
+                if (high > currentDayHOD) {
+                    currentDayHOD = high;
+                    currentDayHODCount++;
+                }
+                if (low < currentDayLOD) {
+                    currentDayLOD = low;
+                    currentDayLODCount++;
+                }
+            }
+            currentDayDateStr = barDateStr;
 
             // Detect timeframe boundaries
             const boundaries = this.detectTimeframeBoundaries(prevDate, barDate);
@@ -433,14 +491,42 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
             console.log(`📊 [Multi-TF Breakout] Final Levels: 1H High=${levels.prev1HHigh?.toFixed(2)}, Day High=${levels.prevDayHigh?.toFixed(2)}, Week High=${levels.prevWeekHigh?.toFixed(2)}, Month High=${levels.prevMonthHigh?.toFixed(2)}`);
         }
 
+        // Save the last day's HOD/LOD counts
+        if (currentDayHODCount > 0) {
+            dailyHODCounts.push(currentDayHODCount);
+            dailyLODCounts.push(currentDayLODCount);
+        }
+
+        // Calculate HOD/LOD stats
+        const totalDays = dailyHODCounts.length;
+        const maxHODCount = totalDays > 0 ? Math.max(...dailyHODCounts) : 0;
+        const maxLODCount = totalDays > 0 ? Math.max(...dailyLODCounts) : 0;
+        const avgHODCount = totalDays > 0 ? dailyHODCounts.reduce((a, b) => a + b, 0) / totalDays : 0;
+        const avgLODCount = totalDays > 0 ? dailyLODCounts.reduce((a, b) => a + b, 0) / totalDays : 0;
+
+        console.log(`📊 [Multi-TF Breakout] HOD/LOD Stats: ${totalDays} days, Max HOD=${maxHODCount}, Max LOD=${maxLODCount}, Avg HOD=${avgHODCount.toFixed(1)}, Avg LOD=${avgLODCount.toFixed(1)}`);
         console.log(`📊 [Multi-TF Breakout v1.0.0] Generated ${signals.length} signals, ${calculations.length} calculation rows`);
-        return { signals, calculations };
+
+        return {
+            signals,
+            calculations,
+            hodLodStats: {
+                maxHODCount,
+                maxLODCount,
+                avgHODCount: parseFloat(avgHODCount.toFixed(2)),
+                avgLODCount: parseFloat(avgLODCount.toFixed(2)),
+                totalDays
+            }
+        };
     }
 
     /**
      * Calculate strategy-specific analytics
      */
-    calculateAnalytics(trades: BaseTrade[]): MultiTFBreakoutAnalytics {
+    calculateAnalytics(
+        trades: BaseTrade[],
+        hodLodStats: { maxHODCount: number; maxLODCount: number; avgHODCount: number; avgLODCount: number; totalDays: number } = { maxHODCount: 0, maxLODCount: 0, avgHODCount: 0, avgLODCount: 0, totalDays: 0 }
+    ): MultiTFBreakoutAnalytics {
         const winningTrades = trades.filter(t => t.pnl > 0).length;
         const losingTrades = trades.filter(t => t.pnl <= 0).length;
 
@@ -474,9 +560,10 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
                 avgRewardAmount: trades.length > 0 ? totalReward / trades.length : 0,
             },
             resetStats: {
-                tradesAfterReset: trades.length,  // All trades should be after reset
-                tradesSkippedNoReset: 0,  // We don't track skipped signals
-            }
+                tradesAfterReset: trades.length,
+                tradesSkippedNoReset: 0,
+            },
+            hodLodStats,
         };
     }
 
@@ -547,7 +634,7 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
         console.log(`🚀 [Multi-TF Breakout] Running backtest with ${ohlcData.length} bars, ₹${initialCapital} capital`);
 
         // Step 1: Strategy generates signals AND calculations
-        const { signals, calculations: allCalculations } = this.generateSignalsWithCalculations(ohlcData, config);
+        const { signals, calculations: allCalculations, hodLodStats } = this.generateSignalsWithCalculations(ohlcData, config);
         console.log(`📊 [Multi-TF Breakout] Generated ${signals.length} signals, ${allCalculations.length} calculation rows`);
 
         // Keep only last 500 calculation rows for UI display
@@ -581,7 +668,7 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
             exitReason: t.exitReason,
         }));
 
-        const analytics = this.calculateAnalytics(baseTrades);
+        const analytics = this.calculateAnalytics(baseTrades, hodLodStats);
 
         return { trades, metrics, analytics, calculations };
     }
