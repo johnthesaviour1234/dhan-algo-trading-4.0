@@ -282,6 +282,8 @@ function BacktestingContent() {
               marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
               stopLoss: result.analytics.exitReasons.stopLoss,
               takeProfit: result.analytics.exitReasons.takeProfit,
+              marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
+              marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
             },
             hourlyPerformance: [],  // Can add hourly analysis later
           };

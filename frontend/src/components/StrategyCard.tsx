@@ -326,6 +326,14 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
             <div>
               <div className="text-gray-500 text-xs">Market Close</div>
               <div className="text-purple-600 font-bold">{performance.advancedAnalytics.exitReasons.marketClose || 0}</div>
+              {/* Show profit/loss breakdown for breakout strategies */}
+              {(performance.advancedAnalytics.exitReasons as any).marketCloseProfit !== undefined && (
+                <div className="text-xs mt-1">
+                  <span className="text-green-600">+{(performance.advancedAnalytics.exitReasons as any).marketCloseProfit}</span>
+                  {' / '}
+                  <span className="text-red-600">-{(performance.advancedAnalytics.exitReasons as any).marketCloseLoss}</span>
+                </div>
+              )}
             </div>
             <div>
               <div className="text-gray-500 text-xs">Stop Loss</div>
@@ -334,6 +342,110 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
             <div>
               <div className="text-gray-500 text-xs">Take Profit</div>
               <div className="text-green-600 font-bold">{(performance.advancedAnalytics.exitReasons as any).takeProfit || 0}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HOD/LOD Stats - for breakout strategies */}
+      {isBreakoutStrategy && performance.htfCalculations && performance.htfCalculations.length > 0 && (
+        <div className="mb-4 p-3 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-lg border border-indigo-200">
+          <div className="text-indigo-700 font-medium mb-2 text-sm">📈 HOD/LOD Formation Stats</div>
+          <div className="grid grid-cols-4 gap-2 text-center text-sm">
+            <div>
+              <div className="text-gray-500 text-xs">Max HOD/Day</div>
+              <div className="text-green-600 font-bold">
+                {(() => {
+                  // Calculate from htfCalculations
+                  const calcs = performance.htfCalculations!;
+                  const dailyCounts = new Map<string, number>();
+                  let currentHigh = 0;
+                  let currentDay = '';
+                  calcs.forEach(c => {
+                    const day = c.time.split(',')[0];
+                    if (day !== currentDay) {
+                      currentDay = day;
+                      currentHigh = c.high;
+                      dailyCounts.set(day, 1);
+                    } else if (c.high > currentHigh) {
+                      currentHigh = c.high;
+                      dailyCounts.set(day, (dailyCounts.get(day) || 0) + 1);
+                    }
+                  });
+                  return Math.max(...dailyCounts.values(), 0);
+                })()}
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Max LOD/Day</div>
+              <div className="text-red-600 font-bold">
+                {(() => {
+                  const calcs = performance.htfCalculations!;
+                  const dailyCounts = new Map<string, number>();
+                  let currentLow = Infinity;
+                  let currentDay = '';
+                  calcs.forEach(c => {
+                    const day = c.time.split(',')[0];
+                    if (day !== currentDay) {
+                      currentDay = day;
+                      currentLow = c.low;
+                      dailyCounts.set(day, 1);
+                    } else if (c.low < currentLow) {
+                      currentLow = c.low;
+                      dailyCounts.set(day, (dailyCounts.get(day) || 0) + 1);
+                    }
+                  });
+                  return Math.max(...dailyCounts.values(), 0);
+                })()}
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Avg HOD/Day</div>
+              <div className="text-green-600 font-bold">
+                {(() => {
+                  const calcs = performance.htfCalculations!;
+                  const dailyCounts = new Map<string, number>();
+                  let currentHigh = 0;
+                  let currentDay = '';
+                  calcs.forEach(c => {
+                    const day = c.time.split(',')[0];
+                    if (day !== currentDay) {
+                      currentDay = day;
+                      currentHigh = c.high;
+                      dailyCounts.set(day, 1);
+                    } else if (c.high > currentHigh) {
+                      currentHigh = c.high;
+                      dailyCounts.set(day, (dailyCounts.get(day) || 0) + 1);
+                    }
+                  });
+                  const vals = [...dailyCounts.values()];
+                  return vals.length > 0 ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : '0';
+                })()}
+              </div>
+            </div>
+            <div>
+              <div className="text-gray-500 text-xs">Avg LOD/Day</div>
+              <div className="text-red-600 font-bold">
+                {(() => {
+                  const calcs = performance.htfCalculations!;
+                  const dailyCounts = new Map<string, number>();
+                  let currentLow = Infinity;
+                  let currentDay = '';
+                  calcs.forEach(c => {
+                    const day = c.time.split(',')[0];
+                    if (day !== currentDay) {
+                      currentDay = day;
+                      currentLow = c.low;
+                      dailyCounts.set(day, 1);
+                    } else if (c.low < currentLow) {
+                      currentLow = c.low;
+                      dailyCounts.set(day, (dailyCounts.get(day) || 0) + 1);
+                    }
+                  });
+                  const vals = [...dailyCounts.values()];
+                  return vals.length > 0 ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : '0';
+                })()}
+              </div>
             </div>
           </div>
         </div>

@@ -531,10 +531,13 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
         const losingTrades = trades.filter(t => t.pnl <= 0).length;
 
         // Count exit reasons
+        const marketCloseTrades = trades.filter(t => t.exitReason === 'MarketClose');
         const exitReasons = {
             stopLoss: trades.filter(t => t.exitReason === 'StopLoss').length,
             takeProfit: trades.filter(t => t.exitReason === 'TakeProfit').length,
-            marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+            marketClose: marketCloseTrades.length,
+            marketCloseProfit: marketCloseTrades.filter(t => t.pnl > 0).length,
+            marketCloseLoss: marketCloseTrades.filter(t => t.pnl <= 0).length,
         };
 
         // Calculate average risk/reward

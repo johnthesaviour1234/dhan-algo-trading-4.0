@@ -69,6 +69,8 @@ export interface MultiTFBreakoutAnalytics {
         stopLoss: number;
         takeProfit: number;
         marketClose: number;
+        marketCloseProfit: number;  // Market close with positive PnL
+        marketCloseLoss: number;    // Market close with negative PnL
     };
 
     // HTF level stats
