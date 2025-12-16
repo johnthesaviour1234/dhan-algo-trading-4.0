@@ -25,9 +25,9 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
     performance.strategyName.includes('SMA') ? 'SMA' : null;
   const isEMAStrategy = strategyType !== null;
   const isBreakoutStrategy = performance.strategyType === 'breakout' || performance.strategyType === 'breakout-wdh';
-  const isADXStrategy = performance.strategyType === 'breakout-adx';
-  const isADX1HStrategy = performance.strategyType === 'breakout-adx-1h';
-  const isWDHADXStrategy = performance.strategyType === 'breakout-wdh-adx';
+  const isADXStrategy = performance.strategyType === 'breakout-adx' || performance.strategyType === 'breakout-adx-05';
+  const isADX1HStrategy = performance.strategyType === 'breakout-adx-1h' || performance.strategyType === 'breakout-adx-1h-05';
+  const isWDHADXStrategy = performance.strategyType === 'breakout-wdh-adx' || performance.strategyType === 'breakout-wdh-adx-05';
   const isCalculationStrategy = isEMAStrategy || isBreakoutStrategy || isADXStrategy || isADX1HStrategy || isWDHADXStrategy;
   const hasCalculationData = performance.calculations && performance.calculations.length > 0;
   const hasHTFCalculationData = performance.htfCalculations && performance.htfCalculations.length > 0;

@@ -10,6 +10,9 @@ import { multiTFBreakoutWDHStrategy } from '../strategies/Multi_TF_Breakout_WDH'
 import { multiTFBreakoutADXStrategy } from '../strategies/Multi_TF_Breakout_ADX';
 import { multiTFBreakoutADX1HStrategy } from '../strategies/Multi_TF_Breakout_ADX_1H';
 import { multiTFBreakoutWDHADXStrategy } from '../strategies/Multi_TF_Breakout_WDH_ADX';
+import { multiTFBreakoutWDHADX05Strategy } from '../strategies/Multi_TF_Breakout_WDH_ADX_05';
+import { multiTFBreakoutADX05Strategy } from '../strategies/Multi_TF_Breakout_ADX_05';
+import { multiTFBreakoutADX1H05Strategy } from '../strategies/Multi_TF_Breakout_ADX_1H_05';
 import type { TradeCosts } from '../utils/BrokerageCalculator';
 
 export interface MetricData {
@@ -157,6 +160,21 @@ const availableStrategies: AvailableStrategy[] = [
     id: '6',
     name: `${multiTFBreakoutWDHADXStrategy.name} v${multiTFBreakoutWDHADXStrategy.version}`,
     type: 'breakout-wdh-adx',
+  },
+  {
+    id: '7',
+    name: `${multiTFBreakoutWDHADX05Strategy.name} v${multiTFBreakoutWDHADX05Strategy.version}`,
+    type: 'breakout-wdh-adx-05',
+  },
+  {
+    id: '8',
+    name: `${multiTFBreakoutADX05Strategy.name} v${multiTFBreakoutADX05Strategy.version}`,
+    type: 'breakout-adx-05',
+  },
+  {
+    id: '9',
+    name: `${multiTFBreakoutADX1H05Strategy.name} v${multiTFBreakoutADX1H05Strategy.version}`,
+    type: 'breakout-adx-1h-05',
   },
 ];
 
@@ -388,8 +406,61 @@ function BacktestingContent() {
             hourlyPerformance: [],
           };
           console.log(`📊 [WDH ADX Stats] Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}, Avg ADX on entry: ${result.analytics.adxStats.avgDailyADXOnEntry.toFixed(2)}`);
+        } else if (strategy.type === 'breakout-wdh-adx-05') {
+          // Multi-TF Breakout WDH ADX 0.5 Strategy (W/D/H + ADX - 1:0.5 R:R)
+          const result = multiTFBreakoutWDHADX05Strategy.runBacktest(ohlcData, undefined, initialCapital);
+          trades = result.trades;
+          metrics = result.metrics;
+          htfWDHADXCalculations = result.calculations;  // Same format as WDH ADX
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+              stopLoss: result.analytics.exitReasons.stopLoss,
+              takeProfit: result.analytics.exitReasons.takeProfit,
+              marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
+              marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
+            },
+            hourlyPerformance: [],
+          };
+          console.log(`📊 [WDH ADX 0.5] R:R 1:0.5. Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}`);
+        } else if (strategy.type === 'breakout-adx-05') {
+          // Multi-TF Breakout ADX 0.5 Strategy (M/W/D/H + Daily ADX - 1:0.5 R:R)
+          const result = multiTFBreakoutADX05Strategy.runBacktest(ohlcData, undefined, initialCapital);
+          trades = result.trades;
+          metrics = result.metrics;
+          htfADXCalculations = result.calculations;
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+              stopLoss: result.analytics.exitReasons.stopLoss,
+              takeProfit: result.analytics.exitReasons.takeProfit,
+              marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
+              marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
+            },
+            hourlyPerformance: [],
+          };
+          console.log(`📊 [ADX 0.5] R:R 1:0.5. Trades: ${trades.length}`);
+        } else if (strategy.type === 'breakout-adx-1h-05') {
+          // Multi-TF Breakout ADX 1H 0.5 Strategy (M/W/D/H + Hourly ADX - 1:0.5 R:R)
+          const result = multiTFBreakoutADX1H05Strategy.runBacktest(ohlcData, undefined, initialCapital);
+          trades = result.trades;
+          metrics = result.metrics;
+          htfADX1HCalculations = result.calculations;
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+              stopLoss: result.analytics.exitReasons.stopLoss,
+              takeProfit: result.analytics.exitReasons.takeProfit,
+              marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
+              marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
+            },
+            hourlyPerformance: [],
+          };
+          console.log(`📊 [ADX 1H 0.5] R:R 1:0.5. Trades: ${trades.length}`);
         } else {
-          // EMA Simple Strategy (default)
           const result = emaSimpleStrategy.runBacktest(
             ohlcData,
             undefined, // use default config
