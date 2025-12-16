@@ -3,6 +3,9 @@ import type { StrategyPerformance } from './BacktestingPanel';
 import { useState } from 'react';
 import { CalculationsTable } from './CalculationsTable';
 import { HTFCalculationsTable } from './HTFCalculationsTable';
+import { HTFADXCalculationsTable } from './HTFADXCalculationsTable';
+import { HTFADX1HCalculationsTable } from './HTFADX1HCalculationsTable';
+import { HTFWDHADXCalculationsTable } from './HTFWDHADXCalculationsTable';
 
 interface StrategyCardProps {
   performance: StrategyPerformance;
@@ -21,10 +24,16 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
   const strategyType = performance.strategyName.includes('EMA') ? 'EMA' :
     performance.strategyName.includes('SMA') ? 'SMA' : null;
   const isEMAStrategy = strategyType !== null;
-  const isBreakoutStrategy = performance.strategyType === 'breakout';
-  const isCalculationStrategy = isEMAStrategy || isBreakoutStrategy;
+  const isBreakoutStrategy = performance.strategyType === 'breakout' || performance.strategyType === 'breakout-wdh';
+  const isADXStrategy = performance.strategyType === 'breakout-adx';
+  const isADX1HStrategy = performance.strategyType === 'breakout-adx-1h';
+  const isWDHADXStrategy = performance.strategyType === 'breakout-wdh-adx';
+  const isCalculationStrategy = isEMAStrategy || isBreakoutStrategy || isADXStrategy || isADX1HStrategy || isWDHADXStrategy;
   const hasCalculationData = performance.calculations && performance.calculations.length > 0;
   const hasHTFCalculationData = performance.htfCalculations && performance.htfCalculations.length > 0;
+  const hasHTFADXCalculationData = performance.htfADXCalculations && performance.htfADXCalculations.length > 0;
+  const hasHTFADX1HCalculationData = performance.htfADX1HCalculations && performance.htfADX1HCalculations.length > 0;
+  const hasHTFWDHADXCalculationData = performance.htfWDHADXCalculations && performance.htfWDHADXCalculations.length > 0;
 
   // Download analytics function
   const downloadAnalytics = () => {
@@ -679,7 +688,43 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
 
       {/* Real-Time Calculations / HTF Calculations */}
       {showTrades && viewMode === 'calculations' && isCalculationStrategy && (
-        isBreakoutStrategy ? (
+        isADX1HStrategy ? (
+          // HTF ADX 1H Calculations for Hourly ADX strategy
+          hasHTFADX1HCalculationData ? (
+            <HTFADX1HCalculationsTable calculations={performance.htfADX1HCalculations!} />
+          ) : (
+            <div className="border-t border-gray-200 pt-6">
+              <h5 className="text-gray-900 mb-4">HTF + Hourly ADX Calculations</h5>
+              <div className="text-center py-8 text-gray-500">
+                No Hourly ADX calculation data available. Run a backtest first.
+              </div>
+            </div>
+          )
+        ) : isWDHADXStrategy ? (
+          // HTF WDH ADX Calculations for WDH ADX strategy (no Monthly)
+          hasHTFWDHADXCalculationData ? (
+            <HTFWDHADXCalculationsTable calculations={performance.htfWDHADXCalculations!} />
+          ) : (
+            <div className="border-t border-gray-200 pt-6">
+              <h5 className="text-gray-900 mb-4">WDH + ADX Calculations (No Monthly)</h5>
+              <div className="text-center py-8 text-gray-500">
+                No WDH ADX calculation data available. Run a backtest first.
+              </div>
+            </div>
+          )
+        ) : isADXStrategy ? (
+          // HTF ADX Calculations for ADX strategy
+          hasHTFADXCalculationData ? (
+            <HTFADXCalculationsTable calculations={performance.htfADXCalculations!} />
+          ) : (
+            <div className="border-t border-gray-200 pt-6">
+              <h5 className="text-gray-900 mb-4">HTF + ADX Calculations</h5>
+              <div className="text-center py-8 text-gray-500">
+                No ADX calculation data available. Run a backtest first.
+              </div>
+            </div>
+          )
+        ) : isBreakoutStrategy ? (
           // HTF Calculations for breakout strategies
           hasHTFCalculationData ? (
             <HTFCalculationsTable calculations={performance.htfCalculations!} />

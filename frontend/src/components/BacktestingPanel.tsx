@@ -6,6 +6,10 @@ import { backtestDataFetcher, BacktestSymbolConfig } from '../lib/BacktestDataFe
 import { Trade, Metrics } from '../lib/BacktestEngine';
 import { emaSimpleStrategy } from '../strategies/EMA_3_15_Simple';
 import { multiTFBreakoutStrategy } from '../strategies/Multi_TF_Breakout';
+import { multiTFBreakoutWDHStrategy } from '../strategies/Multi_TF_Breakout_WDH';
+import { multiTFBreakoutADXStrategy } from '../strategies/Multi_TF_Breakout_ADX';
+import { multiTFBreakoutADX1HStrategy } from '../strategies/Multi_TF_Breakout_ADX_1H';
+import { multiTFBreakoutWDHADXStrategy } from '../strategies/Multi_TF_Breakout_WDH_ADX';
 import type { TradeCosts } from '../utils/BrokerageCalculator';
 
 export interface MetricData {
@@ -104,6 +108,9 @@ export interface StrategyPerformance {
   trades: Trade[];
   calculations?: import('../types/CalculationRow').CalculationRow[];
   htfCalculations?: import('../types/HTFCalculationRow').HTFCalculationRow[];
+  htfADXCalculations?: import('../types/HTFADXCalculationRow').HTFADXCalculationRow[];
+  htfADX1HCalculations?: import('../types/HTFADX1HCalculationRow').HTFADX1HCalculationRow[];
+  htfWDHADXCalculations?: import('../types/HTFWDHADXCalculationRow').HTFWDHADXCalculationRow[];
   advancedAnalytics?: AdvancedAnalytics;
   capitalInfo?: {
     initialCapital: number;
@@ -130,6 +137,26 @@ const availableStrategies: AvailableStrategy[] = [
     id: '2',
     name: `${multiTFBreakoutStrategy.name} v${multiTFBreakoutStrategy.version}`,
     type: 'breakout',
+  },
+  {
+    id: '3',
+    name: `${multiTFBreakoutWDHStrategy.name} v${multiTFBreakoutWDHStrategy.version}`,
+    type: 'breakout-wdh',
+  },
+  {
+    id: '4',
+    name: `${multiTFBreakoutADXStrategy.name} v${multiTFBreakoutADXStrategy.version}`,
+    type: 'breakout-adx',
+  },
+  {
+    id: '5',
+    name: `${multiTFBreakoutADX1HStrategy.name} v${multiTFBreakoutADX1HStrategy.version}`,
+    type: 'breakout-adx-1h',
+  },
+  {
+    id: '6',
+    name: `${multiTFBreakoutWDHADXStrategy.name} v${multiTFBreakoutWDHADXStrategy.version}`,
+    type: 'breakout-wdh-adx',
   },
 ];
 
@@ -269,9 +296,12 @@ function BacktestingContent() {
         let advancedAnalytics: AdvancedAnalytics;
 
         let htfCalculations: import('../types/HTFCalculationRow').HTFCalculationRow[] | undefined;
+        let htfADXCalculations: import('../types/HTFADXCalculationRow').HTFADXCalculationRow[] | undefined;
+        let htfADX1HCalculations: import('../types/HTFADX1HCalculationRow').HTFADX1HCalculationRow[] | undefined;
+        let htfWDHADXCalculations: import('../types/HTFWDHADXCalculationRow').HTFWDHADXCalculationRow[] | undefined;
 
         if (strategy.type === 'breakout') {
-          // Multi-TF Breakout Strategy
+          // Multi-TF Breakout Strategy (with Monthly)
           const result = multiTFBreakoutStrategy.runBacktest(ohlcData, undefined, initialCapital);
           trades = result.trades;
           metrics = result.metrics;
@@ -285,8 +315,79 @@ function BacktestingContent() {
               marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
               marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
             },
-            hourlyPerformance: [],  // Can add hourly analysis later
+            hourlyPerformance: [],
           };
+        } else if (strategy.type === 'breakout-wdh') {
+          // Multi-TF Breakout WDH Strategy (Weekly/Daily/Hourly - no Monthly)
+          const result = multiTFBreakoutWDHStrategy.runBacktest(ohlcData, undefined, initialCapital);
+          trades = result.trades;
+          metrics = result.metrics;
+          htfCalculations = result.calculations;
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+              stopLoss: result.analytics.exitReasons.stopLoss,
+              takeProfit: result.analytics.exitReasons.takeProfit,
+              marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
+              marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
+            },
+            hourlyPerformance: [],
+          };
+        } else if (strategy.type === 'breakout-adx') {
+          // Multi-TF Breakout ADX Strategy (M/W/D/H + Daily ADX > 25)
+          const result = multiTFBreakoutADXStrategy.runBacktest(ohlcData, undefined, initialCapital);
+          trades = result.trades;
+          metrics = result.metrics;
+          htfADXCalculations = result.calculations;
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+              stopLoss: result.analytics.exitReasons.stopLoss,
+              takeProfit: result.analytics.exitReasons.takeProfit,
+              marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
+              marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
+            },
+            hourlyPerformance: [],
+          };
+          console.log(`📊 [ADX Stats] Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}, Avg ADX on entry: ${result.analytics.adxStats.avgDailyADXOnEntry.toFixed(2)}`);
+        } else if (strategy.type === 'breakout-adx-1h') {
+          // Multi-TF Breakout ADX 1H Strategy (M/W/D/H + Hourly ADX > 25)
+          const result = multiTFBreakoutADX1HStrategy.runBacktest(ohlcData, undefined, initialCapital);
+          trades = result.trades;
+          metrics = result.metrics;
+          htfADX1HCalculations = result.calculations;
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+              stopLoss: result.analytics.exitReasons.stopLoss,
+              takeProfit: result.analytics.exitReasons.takeProfit,
+              marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
+              marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
+            },
+            hourlyPerformance: [],
+          };
+          console.log(`📊 [ADX 1H Stats] Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}, Avg ADX on entry: ${result.analytics.adxStats.avgHourlyADXOnEntry.toFixed(2)}`);
+        } else if (strategy.type === 'breakout-wdh-adx') {
+          // Multi-TF Breakout WDH ADX Strategy (W/D/H + Daily ADX > 25 - NO Monthly)
+          const result = multiTFBreakoutWDHADXStrategy.runBacktest(ohlcData, undefined, initialCapital);
+          trades = result.trades;
+          metrics = result.metrics;
+          htfWDHADXCalculations = result.calculations;
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+              stopLoss: result.analytics.exitReasons.stopLoss,
+              takeProfit: result.analytics.exitReasons.takeProfit,
+              marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
+              marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
+            },
+            hourlyPerformance: [],
+          };
+          console.log(`📊 [WDH ADX Stats] Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}, Avg ADX on entry: ${result.analytics.adxStats.avgDailyADXOnEntry.toFixed(2)}`);
         } else {
           // EMA Simple Strategy (default)
           const result = emaSimpleStrategy.runBacktest(
@@ -326,6 +427,9 @@ function BacktestingContent() {
           trades: convertedTrades,
           advancedAnalytics: advancedAnalytics,
           htfCalculations: htfCalculations,
+          htfADXCalculations: htfADXCalculations,
+          htfADX1HCalculations: htfADX1HCalculations,
+          htfWDHADXCalculations: htfWDHADXCalculations,
           capitalInfo: {
             initialCapital,
             finalCapital: parseFloat(finalCapital.toFixed(2)),
