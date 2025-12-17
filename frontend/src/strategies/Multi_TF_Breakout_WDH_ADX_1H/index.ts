@@ -1,27 +1,27 @@
 /**
- * Multi-TF Breakout ADX 1H 0.5 Strategy - Main Implementation
+ * Multi-TF Breakout WDH ADX 1H Strategy - Main Implementation
  * 
- * v1.0.0 - Multi-TF Breakout with Hourly ADX Filter + 1:0.5 R:R
+ * v1.0.0 - Multi-TF Breakout (W/D/H only, NO Monthly) with Hourly ADX Filter
  * 
- * Entry: Close > ALL previous HTF highs (1H, Day, Week, Month) for LONG
- *        Close < ALL previous HTF lows (1H, Day, Week, Month) for SHORT
+ * Entry: Close > ALL previous HTF highs (1H, Day, Week - NO Month) for LONG
+ *        Close < ALL previous HTF lows (1H, Day, Week - NO Month) for SHORT
  *        AND Hourly ADX > threshold (calculated from COMPLETED hourly candles only)
- * Exit: Stop Loss (prev 1H low/high) OR Target Profit (1:0.5 R:R) OR Market Close
+ * Exit: Stop Loss (prev 1H low/high) OR Target Profit (1:1 R:R) OR Market Close
  * 
- * This is a variant with conservative 0.5x target profit.
+ * This variant removes the Monthly condition for faster entries.
  */
 
 import { CandlestickData } from 'lightweight-charts';
 import { BaseStrategy, Signal, BaseTrade, BasicMetrics } from '../BaseStrategy';
-import { MultiTFBreakoutADX1H05Config, MultiTFBreakoutADX1H05Analytics, MultiTFBreakoutADX1H05Export, HTFLevels, DEFAULT_CONFIG } from './types';
+import { MultiTFBreakoutWDHADX1HConfig, MultiTFBreakoutWDHADX1HAnalytics, MultiTFBreakoutWDHADX1HExport, HTFLevels, DEFAULT_CONFIG } from './types';
 import { backtestEngine, Trade, Metrics } from '../../lib/BacktestEngine';
 import { IndicatorCalculator } from '../../utils/IndicatorCalculator';
 import type { HTFADX1HCalculationRow } from '../../types/HTFADX1HCalculationRow';
 
-export class MultiTFBreakoutADX1H05Strategy implements BaseStrategy<MultiTFBreakoutADX1H05Config, MultiTFBreakoutADX1H05Analytics, MultiTFBreakoutADX1H05Export> {
-    readonly name = 'Multi-TF Breakout ADX 1H 0.5';
+export class MultiTFBreakoutWDHADX1HStrategy implements BaseStrategy<MultiTFBreakoutWDHADX1HConfig, MultiTFBreakoutWDHADX1HAnalytics, MultiTFBreakoutWDHADX1HExport> {
+    readonly name = 'Multi-TF Breakout WDH ADX 1H';
     readonly version = '1.0.0';
-    readonly description = 'Breakout M/W/D/H + Hourly ADX > 25 with 1:0.5 R:R';
+    readonly description = 'Breakout W/D/H (no Monthly) + Hourly ADX > 25 with 1:1 R:R';
 
     getIndicatorNames(): string[] {
         return [
@@ -85,7 +85,7 @@ export class MultiTFBreakoutADX1H05Strategy implements BaseStrategy<MultiTFBreak
     /**
      * Check if time is within trading window
      */
-    private isWithinTradingWindow(date: Date, config: MultiTFBreakoutADX1H05Config): boolean {
+    private isWithinTradingWindow(date: Date, config: MultiTFBreakoutWDHADX1HConfig): boolean {
         const currentMinutes = date.getHours() * 60 + date.getMinutes();
         const startMinutes = config.params.startHour * 60 + config.params.startMinute;
         const endMinutes = config.params.endHour * 60 + config.params.endMinute;
@@ -95,7 +95,7 @@ export class MultiTFBreakoutADX1H05Strategy implements BaseStrategy<MultiTFBreak
     /**
      * Generate trading signals from OHLC data
      */
-    generateSignals(ohlcData: CandlestickData[], config: MultiTFBreakoutADX1H05Config = DEFAULT_CONFIG): Signal[] {
+    generateSignals(ohlcData: CandlestickData[], config: MultiTFBreakoutWDHADX1HConfig = DEFAULT_CONFIG): Signal[] {
         const { signals } = this.generateSignalsWithCalculations(ohlcData, config);
         return signals;
     }
@@ -105,7 +105,7 @@ export class MultiTFBreakoutADX1H05Strategy implements BaseStrategy<MultiTFBreak
      */
     generateSignalsWithCalculations(
         ohlcData: CandlestickData[],
-        config: MultiTFBreakoutADX1H05Config = DEFAULT_CONFIG
+        config: MultiTFBreakoutWDHADX1HConfig = DEFAULT_CONFIG
     ): {
         signals: Signal[];
         calculations: HTFADX1HCalculationRow[];
@@ -335,22 +335,19 @@ export class MultiTFBreakoutADX1H05Strategy implements BaseStrategy<MultiTFBreak
                 if (levels.currMonthLow === null || low < levels.currMonthLow) levels.currMonthLow = low;
             }
 
-            // ============= CHECK ALL LEVELS READY =============
-            const allLevelsReady = levels.prev1HReady && levels.prevDayReady &&
-                levels.prevWeekReady && levels.prevMonthReady;
+            // ============= CHECK ALL LEVELS READY (W/D/H only - NO Monthly) =============
+            const allLevelsReady = levels.prev1HReady && levels.prevDayReady && levels.prevWeekReady;
 
-            // Conditions
+            // Conditions (W/D/H only - NO Monthly condition)
             const closeAbove1HHigh = allLevelsReady && close > levels.prev1HHigh!;
             const closeAboveDayHigh = allLevelsReady && close > levels.prevDayHigh!;
             const closeAboveWeekHigh = allLevelsReady && close > levels.prevWeekHigh!;
-            const closeAboveMonthHigh = allLevelsReady && close > levels.prevMonthHigh!;
-            const closeAboveAllHighs = closeAbove1HHigh && closeAboveDayHigh && closeAboveWeekHigh && closeAboveMonthHigh;
+            const closeAboveAllHighs = closeAbove1HHigh && closeAboveDayHigh && closeAboveWeekHigh;  // NO Monthly
 
             const closeBelow1HLow = allLevelsReady && close < levels.prev1HLow!;
             const closeBelowDayLow = allLevelsReady && close < levels.prevDayLow!;
             const closeBelowWeekLow = allLevelsReady && close < levels.prevWeekLow!;
-            const closeBelowMonthLow = allLevelsReady && close < levels.prevMonthLow!;
-            const closeBelowAllLows = closeBelow1HLow && closeBelowDayLow && closeBelowWeekLow && closeBelowMonthLow;
+            const closeBelowAllLows = closeBelow1HLow && closeBelowDayLow && closeBelowWeekLow;  // NO Monthly
 
             if (closeAboveAllHighs || closeBelowAllLows) {
                 conditionsMet++;
@@ -522,13 +519,13 @@ export class MultiTFBreakoutADX1H05Strategy implements BaseStrategy<MultiTFBreak
                 closeAbove1HHigh,
                 closeAboveDayHigh,
                 closeAboveWeekHigh,
-                closeAboveMonthHigh,
+                closeAboveMonthHigh: false,  // Not used in WDH strategy
                 closeAboveAllHighs,
 
                 closeBelow1HLow,
                 closeBelowDayLow,
                 closeBelowWeekLow,
-                closeBelowMonthLow,
+                closeBelowMonthLow: false,  // Not used in WDH strategy
                 closeBelowAllLows,
 
                 new1H: boundaries.new1H,
@@ -612,7 +609,7 @@ export class MultiTFBreakoutADX1H05Strategy implements BaseStrategy<MultiTFBreak
         trades: BaseTrade[],
         hodLodStats: { maxHODCount: number; maxLODCount: number; avgHODCount: number; avgLODCount: number; totalDays: number } = { maxHODCount: 0, maxLODCount: 0, avgHODCount: 0, avgLODCount: 0, totalDays: 0 },
         adxStats: { avgHourlyADXOnEntry: number; tradesBlockedByADX: number; hoursWithADXAboveThreshold: number; hoursWithADXBelowThreshold: number } = { avgHourlyADXOnEntry: 0, tradesBlockedByADX: 0, hoursWithADXAboveThreshold: 0, hoursWithADXBelowThreshold: 0 }
-    ): MultiTFBreakoutADX1H05Analytics {
+    ): MultiTFBreakoutWDHADX1HAnalytics {
         const winningTrades = trades.filter(t => t.pnl > 0).length;
         const losingTrades = trades.filter(t => t.pnl <= 0).length;
 
@@ -661,16 +658,16 @@ export class MultiTFBreakoutADX1H05Strategy implements BaseStrategy<MultiTFBreak
     formatExport(
         trades: BaseTrade[],
         _metrics: BasicMetrics,
-        analytics: MultiTFBreakoutADX1H05Analytics,
+        analytics: MultiTFBreakoutWDHADX1HAnalytics,
         dateRange: { start: string; end: string }
-    ): MultiTFBreakoutADX1H05Export {
+    ): MultiTFBreakoutWDHADX1HExport {
         return {
             exportDate: new Date().toISOString(),
             backtestPeriod: dateRange,
             strategyInfo: {
                 name: `${this.name} v${this.version}`,
                 version: this.version,
-                type: 'breakout-adx-1h-05',
+                type: 'breakout-wdh-adx-1h',
                 totalTrades: trades.length,
             },
             config: {
@@ -713,12 +710,12 @@ export class MultiTFBreakoutADX1H05Strategy implements BaseStrategy<MultiTFBreak
      */
     runBacktest(
         ohlcData: CandlestickData[],
-        config: MultiTFBreakoutADX1H05Config = DEFAULT_CONFIG,
+        config: MultiTFBreakoutWDHADX1HConfig = DEFAULT_CONFIG,
         initialCapital: number = 100
     ): {
         trades: Trade[];
         metrics: Metrics;
-        analytics: MultiTFBreakoutADX1H05Analytics;
+        analytics: MultiTFBreakoutWDHADX1HAnalytics;
         calculations: HTFADX1HCalculationRow[];
     } {
         console.log(`🚀 [Multi-TF Breakout ADX 1H] Running backtest with ${ohlcData.length} bars, ₹${initialCapital} capital, ADX threshold: ${config.params.adxThreshold}`);
@@ -760,5 +757,4 @@ export class MultiTFBreakoutADX1H05Strategy implements BaseStrategy<MultiTFBreak
 }
 
 // Singleton instance
-export const multiTFBreakoutADX1H05Strategy = new MultiTFBreakoutADX1H05Strategy();
-
+export const multiTFBreakoutWDHADX1HStrategy = new MultiTFBreakoutWDHADX1HStrategy();

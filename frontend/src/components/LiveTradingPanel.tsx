@@ -797,7 +797,7 @@ function generateTrade(strategyName: string, entryDate: Date, exitDate: Date, in
 }
 
 function calculateCombinedMetrics(performanceData: StrategyPerformance[]): StrategyPerformance['metrics'] {
-  const emptyMetric: MetricData = { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0 };
+  const emptyMetric: MetricData = { return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0, payoffRatio: 0, recoveryFactor: 0, maxConsecutiveWins: 0, maxConsecutiveLosses: 0, riskRewardRatio: 0, timeInMarket: 0, totalInvestedCapital: 0, avgInvestedCapital: 0, returnOnInvested: 0, maxDrawdownOnInvested: 0, recoveryFactorOnInvested: 0 };
   if (performanceData.length === 0) {
     return {
       daily: emptyMetric,

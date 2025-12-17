@@ -633,7 +633,7 @@ export class MultiTFBreakoutWDHADX05Strategy implements BaseStrategy<MultiTFBrea
         const calculations = allCalculations.slice(-500);
 
         const backtestConfig = { initialCapital, quantity: 1 };
-        const { trades, barsInPosition, totalMarketBars } = backtestEngine.simulateTrades(signals, ohlcData, backtestConfig);
+        const { trades, barsInPosition, totalMarketBars, equity } = backtestEngine.simulateTrades(signals, ohlcData, backtestConfig);
         console.log(`✅ [WDH ADX 0.5] ${trades.length} trades generated`);
 
         const metrics = backtestEngine.calculateMetrics(trades, initialCapital, barsInPosition, totalMarketBars);
@@ -659,7 +659,7 @@ export class MultiTFBreakoutWDHADX05Strategy implements BaseStrategy<MultiTFBrea
 
         const analytics = this.calculateAnalytics(baseTrades, hodLodStats, adxStats);
 
-        return { trades, metrics, analytics, calculations };
+        return { trades, metrics, analytics, calculations, equity };
     }
 }
 

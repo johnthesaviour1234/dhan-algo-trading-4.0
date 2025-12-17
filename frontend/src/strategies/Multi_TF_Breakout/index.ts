@@ -645,7 +645,7 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
 
         // Step 2: Engine simulates trades
         const backtestConfig = { initialCapital, quantity: 1 };
-        const { trades, barsInPosition, totalMarketBars } = backtestEngine.simulateTrades(signals, ohlcData, backtestConfig);
+        const { trades, barsInPosition, totalMarketBars, equity } = backtestEngine.simulateTrades(signals, ohlcData, backtestConfig);
         console.log(`✅ [Multi-TF Breakout] ${trades.length} trades generated, Time in market: ${((barsInPosition / totalMarketBars) * 100).toFixed(1)}%`);
 
         // Step 3: Engine calculates metrics
@@ -673,7 +673,7 @@ export class MultiTFBreakoutStrategy implements BaseStrategy<MultiTFBreakoutConf
 
         const analytics = this.calculateAnalytics(baseTrades, hodLodStats);
 
-        return { trades, metrics, analytics, calculations };
+        return { trades, metrics, analytics, calculations, equity };
     }
 }
 

@@ -6,6 +6,7 @@ import { HTFCalculationsTable } from './HTFCalculationsTable';
 import { HTFADXCalculationsTable } from './HTFADXCalculationsTable';
 import { HTFADX1HCalculationsTable } from './HTFADX1HCalculationsTable';
 import { HTFWDHADXCalculationsTable } from './HTFWDHADXCalculationsTable';
+import { EquityCurve } from './EquityCurve';
 
 interface StrategyCardProps {
   performance: StrategyPerformance;
@@ -26,7 +27,7 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
   const isEMAStrategy = strategyType !== null;
   const isBreakoutStrategy = performance.strategyType === 'breakout' || performance.strategyType === 'breakout-wdh';
   const isADXStrategy = performance.strategyType === 'breakout-adx' || performance.strategyType === 'breakout-adx-05';
-  const isADX1HStrategy = performance.strategyType === 'breakout-adx-1h' || performance.strategyType === 'breakout-adx-1h-05';
+  const isADX1HStrategy = performance.strategyType === 'breakout-adx-1h' || performance.strategyType === 'breakout-adx-1h-05' || performance.strategyType === 'breakout-wdh-adx-1h' || performance.strategyType === 'breakout-wdh-adx-1h-05';
   const isWDHADXStrategy = performance.strategyType === 'breakout-wdh-adx' || performance.strategyType === 'breakout-wdh-adx-05';
   const isCalculationStrategy = isEMAStrategy || isBreakoutStrategy || isADXStrategy || isADX1HStrategy || isWDHADXStrategy;
   const hasCalculationData = performance.calculations && performance.calculations.length > 0;
@@ -497,6 +498,18 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
         </div>
       )}
 
+      {/* Equity Curve Chart */}
+      {performance.equityCurve && performance.equityCurve.length > 0 && performance.capitalInfo && (
+        <div className="mb-4 p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg border border-emerald-200">
+          <div className="text-emerald-700 font-medium mb-3 text-sm">📈 Equity Curve</div>
+          <EquityCurve
+            data={performance.equityCurve}
+            initialCapital={performance.capitalInfo.initialCapital}
+            height={180}
+          />
+        </div>
+      )}
+
       {/* Metrics by Timeframe */}
       <div className="space-y-3 mb-6">
         {timeframes.map(({ key, label }) => (
@@ -600,6 +613,47 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
                 value={`${performance.metrics[key].timeInMarket.toFixed(1)}%`}
               />
             </div>
+
+            {/* NEW: Invested Capital Metrics Row (for comparison) */}
+            <div className="mt-3 pt-3 border-t border-amber-200 bg-amber-50/50 rounded-lg p-2">
+              <div className="text-xs text-amber-700 font-medium mb-2">
+                📊 Invested Capital Metrics (Based on Actual Trade Investment)
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                <MiniMetric
+                  label="Total Invested"
+                  value={`₹${(performance.metrics[key].totalInvestedCapital || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  highlight="amber"
+                />
+
+                <MiniMetric
+                  label="Avg Invested/Trade"
+                  value={`₹${(performance.metrics[key].avgInvestedCapital || 0).toFixed(2)}`}
+                  highlight="amber"
+                />
+
+                <MiniMetric
+                  label="ROI (Invested)"
+                  value={`${(performance.metrics[key].returnOnInvested || 0) > 0 ? '+' : ''}${(performance.metrics[key].returnOnInvested || 0).toFixed(2)}%`}
+                  positive={(performance.metrics[key].returnOnInvested || 0) > 0}
+                  highlight="amber"
+                />
+
+                <MiniMetric
+                  label="DD (Invested)"
+                  value={`${(performance.metrics[key].maxDrawdownOnInvested || 0).toFixed(2)}%`}
+                  positive={(performance.metrics[key].maxDrawdownOnInvested || 0) > -10}
+                  highlight="amber"
+                />
+
+                <MiniMetric
+                  label="Recovery (Invested)"
+                  value={(performance.metrics[key].recoveryFactorOnInvested || 0).toFixed(2)}
+                  positive={(performance.metrics[key].recoveryFactorOnInvested || 0) > 1}
+                  highlight="amber"
+                />
+              </div>
+            </div>
           </div>
         ))}
       </div>
@@ -625,6 +679,7 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
                   <th className="text-right py-3 px-3 text-gray-700">Entry Price</th>
                   <th className="text-right py-3 px-3 text-gray-700">Exit Price</th>
                   <th className="text-right py-3 px-3 text-gray-700">Quantity</th>
+                  <th className="text-right py-3 px-3 text-amber-700 bg-amber-50">Invested Capital</th>
                   <th className="text-right py-3 px-3 text-gray-700">Total Cost</th>
                   <th className="text-right py-3 px-3 text-gray-700">Slippage</th>
                   <th className="text-right py-3 px-3 text-gray-700">P&L</th>
@@ -669,6 +724,7 @@ export function StrategyCard({ performance, onRemove, totalStrategies, dateRange
                     <td className="py-3 px-3 text-right text-gray-600">₹{trade.entryPrice.toFixed(2)}</td>
                     <td className="py-3 px-3 text-right text-gray-600">₹{trade.exitPrice.toFixed(2)}</td>
                     <td className="py-3 px-3 text-right text-gray-600">{trade.quantity}</td>
+                    <td className="py-3 px-3 text-right text-amber-700 bg-amber-50 font-medium">₹{(trade.investedCapital ?? 0).toFixed(2)}</td>
                     <td className="py-3 px-3 text-right text-gray-600">₹{trade.costs?.totalCost?.toFixed(2) ?? '0.00'}</td>
                     <td className="py-3 px-3 text-right text-gray-600">₹{trade.slippage?.toFixed(2) ?? '0.00'}</td>
                     <td className={`py-3 px-3 text-right ${(trade.pnl ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -764,17 +820,28 @@ interface MiniMetricProps {
   label: string;
   value: string;
   positive?: boolean;
+  highlight?: 'amber';  // NEW: for invested capital metrics
 }
 
-function MiniMetric({ label, value, positive }: MiniMetricProps) {
+function MiniMetric({ label, value, positive, highlight }: MiniMetricProps) {
   const getColor = () => {
     if (positive === undefined) return 'text-gray-900';
     return positive ? 'text-green-600' : 'text-red-600';
   };
 
+  const getBgColor = () => {
+    if (highlight === 'amber') return 'bg-amber-50 border-amber-200';
+    return 'bg-white border-gray-200';
+  };
+
+  const getLabelColor = () => {
+    if (highlight === 'amber') return 'text-amber-700';
+    return 'text-gray-600';
+  };
+
   return (
-    <div className="bg-white rounded p-3 border border-gray-200">
-      <div className="text-gray-600 mb-1">{label}</div>
+    <div className={`rounded p-3 border ${getBgColor()}`}>
+      <div className={`${getLabelColor()} mb-1`}>{label}</div>
       <div className={getColor()}>{value}</div>
     </div>
   );

@@ -13,6 +13,8 @@ import { multiTFBreakoutWDHADXStrategy } from '../strategies/Multi_TF_Breakout_W
 import { multiTFBreakoutWDHADX05Strategy } from '../strategies/Multi_TF_Breakout_WDH_ADX_05';
 import { multiTFBreakoutADX05Strategy } from '../strategies/Multi_TF_Breakout_ADX_05';
 import { multiTFBreakoutADX1H05Strategy } from '../strategies/Multi_TF_Breakout_ADX_1H_05';
+import { multiTFBreakoutWDHADX1HStrategy } from '../strategies/Multi_TF_Breakout_WDH_ADX_1H';
+import { multiTFBreakoutWDHADX1H05Strategy } from '../strategies/Multi_TF_Breakout_WDH_ADX_1H_05';
 import type { TradeCosts } from '../utils/BrokerageCalculator';
 
 export interface MetricData {
@@ -121,6 +123,7 @@ export interface StrategyPerformance {
     netPnL: number;
     returnPercent: number;
   };
+  equityCurve?: { time: number; value: number }[];  // NEW: Equity curve data for charting
 }
 
 // Real strategy configurations - strategy handles its own config internally
@@ -175,6 +178,16 @@ const availableStrategies: AvailableStrategy[] = [
     id: '9',
     name: `${multiTFBreakoutADX1H05Strategy.name} v${multiTFBreakoutADX1H05Strategy.version}`,
     type: 'breakout-adx-1h-05',
+  },
+  {
+    id: '10',
+    name: `${multiTFBreakoutWDHADX1HStrategy.name} v${multiTFBreakoutWDHADX1HStrategy.version}`,
+    type: 'breakout-wdh-adx-1h',
+  },
+  {
+    id: '11',
+    name: `${multiTFBreakoutWDHADX1H05Strategy.name} v${multiTFBreakoutWDHADX1H05Strategy.version}`,
+    type: 'breakout-wdh-adx-1h-05',
   },
 ];
 
@@ -317,6 +330,7 @@ function BacktestingContent() {
         let htfADXCalculations: import('../types/HTFADXCalculationRow').HTFADXCalculationRow[] | undefined;
         let htfADX1HCalculations: import('../types/HTFADX1HCalculationRow').HTFADX1HCalculationRow[] | undefined;
         let htfWDHADXCalculations: import('../types/HTFWDHADXCalculationRow').HTFWDHADXCalculationRow[] | undefined;
+        let equityCurve: { time: number; value: number }[] = [];  // NEW: Equity curve data
 
         if (strategy.type === 'breakout') {
           // Multi-TF Breakout Strategy (with Monthly)
@@ -335,6 +349,8 @@ function BacktestingContent() {
             },
             hourlyPerformance: [],
           };
+          equityCurve = result.equity || [];
+          equityCurve = result.equity || [];
         } else if (strategy.type === 'breakout-wdh') {
           // Multi-TF Breakout WDH Strategy (Weekly/Daily/Hourly - no Monthly)
           const result = multiTFBreakoutWDHStrategy.runBacktest(ohlcData, undefined, initialCapital);
@@ -352,6 +368,7 @@ function BacktestingContent() {
             },
             hourlyPerformance: [],
           };
+          equityCurve = result.equity || [];
         } else if (strategy.type === 'breakout-adx') {
           // Multi-TF Breakout ADX Strategy (M/W/D/H + Daily ADX > 25)
           const result = multiTFBreakoutADXStrategy.runBacktest(ohlcData, undefined, initialCapital);
@@ -369,6 +386,7 @@ function BacktestingContent() {
             },
             hourlyPerformance: [],
           };
+          equityCurve = result.equity || [];
           console.log(`📊 [ADX Stats] Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}, Avg ADX on entry: ${result.analytics.adxStats.avgDailyADXOnEntry.toFixed(2)}`);
         } else if (strategy.type === 'breakout-adx-1h') {
           // Multi-TF Breakout ADX 1H Strategy (M/W/D/H + Hourly ADX > 25)
@@ -387,6 +405,7 @@ function BacktestingContent() {
             },
             hourlyPerformance: [],
           };
+          equityCurve = result.equity || [];
           console.log(`📊 [ADX 1H Stats] Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}, Avg ADX on entry: ${result.analytics.adxStats.avgHourlyADXOnEntry.toFixed(2)}`);
         } else if (strategy.type === 'breakout-wdh-adx') {
           // Multi-TF Breakout WDH ADX Strategy (W/D/H + Daily ADX > 25 - NO Monthly)
@@ -405,6 +424,7 @@ function BacktestingContent() {
             },
             hourlyPerformance: [],
           };
+          equityCurve = result.equity || [];
           console.log(`📊 [WDH ADX Stats] Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}, Avg ADX on entry: ${result.analytics.adxStats.avgDailyADXOnEntry.toFixed(2)}`);
         } else if (strategy.type === 'breakout-wdh-adx-05') {
           // Multi-TF Breakout WDH ADX 0.5 Strategy (W/D/H + ADX - 1:0.5 R:R)
@@ -423,6 +443,7 @@ function BacktestingContent() {
             },
             hourlyPerformance: [],
           };
+          equityCurve = result.equity || [];
           console.log(`📊 [WDH ADX 0.5] R:R 1:0.5. Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}`);
         } else if (strategy.type === 'breakout-adx-05') {
           // Multi-TF Breakout ADX 0.5 Strategy (M/W/D/H + Daily ADX - 1:0.5 R:R)
@@ -441,6 +462,7 @@ function BacktestingContent() {
             },
             hourlyPerformance: [],
           };
+          equityCurve = result.equity || [];
           console.log(`📊 [ADX 0.5] R:R 1:0.5. Trades: ${trades.length}`);
         } else if (strategy.type === 'breakout-adx-1h-05') {
           // Multi-TF Breakout ADX 1H 0.5 Strategy (M/W/D/H + Hourly ADX - 1:0.5 R:R)
@@ -459,7 +481,46 @@ function BacktestingContent() {
             },
             hourlyPerformance: [],
           };
+          equityCurve = result.equity || [];
           console.log(`📊 [ADX 1H 0.5] R:R 1:0.5. Trades: ${trades.length}`);
+        } else if (strategy.type === 'breakout-wdh-adx-1h') {
+          // Multi-TF Breakout WDH ADX 1H Strategy (W/D/H + Hourly ADX - 1:1 R:R, NO Monthly)
+          const result = multiTFBreakoutWDHADX1HStrategy.runBacktest(ohlcData, undefined, initialCapital);
+          trades = result.trades;
+          metrics = result.metrics;
+          htfADX1HCalculations = result.calculations;
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+              stopLoss: result.analytics.exitReasons.stopLoss,
+              takeProfit: result.analytics.exitReasons.takeProfit,
+              marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
+              marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
+            },
+            hourlyPerformance: [],
+          };
+          equityCurve = result.equity || [];
+          console.log(`📊 [WDH ADX 1H] W/D/H + Hourly ADX, 1:1 R:R. Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}`);
+        } else if (strategy.type === 'breakout-wdh-adx-1h-05') {
+          // Multi-TF Breakout WDH ADX 1H 0.5 Strategy (W/D/H + Hourly ADX - 1:0.5 R:R, NO Monthly)
+          const result = multiTFBreakoutWDHADX1H05Strategy.runBacktest(ohlcData, undefined, initialCapital);
+          trades = result.trades;
+          metrics = result.metrics;
+          htfADX1HCalculations = result.calculations;
+          advancedAnalytics = {
+            exitReasons: {
+              signal: trades.filter(t => t.exitReason === 'Signal').length,
+              marketClose: trades.filter(t => t.exitReason === 'MarketClose').length,
+              stopLoss: result.analytics.exitReasons.stopLoss,
+              takeProfit: result.analytics.exitReasons.takeProfit,
+              marketCloseProfit: result.analytics.exitReasons.marketCloseProfit,
+              marketCloseLoss: result.analytics.exitReasons.marketCloseLoss,
+            },
+            hourlyPerformance: [],
+          };
+          equityCurve = result.equity || [];
+          console.log(`📊 [WDH ADX 1H 0.5] W/D/H + Hourly ADX, 1:0.5 R:R. Trades blocked by ADX: ${result.analytics.adxStats.tradesBlockedByADX}`);
         } else {
           const result = emaSimpleStrategy.runBacktest(
             ohlcData,
@@ -507,6 +568,7 @@ function BacktestingContent() {
             netPnL: parseFloat(netPnL.toFixed(2)),
             returnPercent: parseFloat(((netPnL / initialCapital) * 100).toFixed(2)),
           },
+          equityCurve,  // NEW: Pass equity curve data for charting
         });
 
         console.log(`✅ [Backtest] ${strategy.name}: ${trades.length} trades, Capital: ₹${initialCapital} → ₹${finalCapital.toFixed(2)}`);
@@ -528,7 +590,8 @@ function BacktestingContent() {
     const emptyMetric: MetricData = {
       return: 0, sharpeRatio: 0, maxDrawdown: 0, winRate: 0, lossRate: 0, totalTrades: 0,
       profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0,
-      payoffRatio: 0, recoveryFactor: 0, maxConsecutiveWins: 0, maxConsecutiveLosses: 0, riskRewardRatio: 0, timeInMarket: 0
+      payoffRatio: 0, recoveryFactor: 0, maxConsecutiveWins: 0, maxConsecutiveLosses: 0, riskRewardRatio: 0, timeInMarket: 0,
+      totalInvestedCapital: 0, avgInvestedCapital: 0, returnOnInvested: 0, maxDrawdownOnInvested: 0, recoveryFactorOnInvested: 0
     };
 
     if (performanceData.length === 0) {

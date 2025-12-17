@@ -35,6 +35,7 @@ export interface Trade {
     entryPrice: number;
     exitPrice: number;
     quantity: number;
+    investedCapital: number;  // NEW: (entryPrice × quantity) + totalCost
     grossPnl: number;
     pnl: number;
     pnlPercent: number;
@@ -63,6 +64,12 @@ export interface MetricData {
     maxConsecutiveLosses: number;
     riskRewardRatio: number;
     timeInMarket: number;
+    // NEW: Invested Capital Metrics (for comparison)
+    totalInvestedCapital: number;      // Sum of (executedPrice × qty) + tradeCost per trade
+    avgInvestedCapital: number;        // Average invested per trade
+    returnOnInvested: number;          // (totalPnL / totalInvestedCapital) × 100
+    maxDrawdownOnInvested: number;     // Drawdown based on invested capital
+    recoveryFactorOnInvested: number;  // returnOnInvested / maxDrawdownOnInvested
 }
 
 export interface Metrics {
@@ -133,6 +140,7 @@ export class BacktestEngine {
         let position: {
             entryTime: number;
             entryPrice: number;
+            quantity: number;  // NEW: Dynamic position size based on available capital
             indicators: Record<string, number | boolean | string>;
             stopLoss: number | null;  // v1.4.0: ATR-based SL
             takeProfit: number | null;  // v1.4.0: ATR-based TP
@@ -148,7 +156,7 @@ export class BacktestEngine {
             signalMap.set(signal.time, signal);
         }
 
-        const { quantity } = config;
+        // Note: config.quantity is now used as a fallback/minimum only
 
         const createTrade = (
             exitTime: number,
@@ -159,15 +167,21 @@ export class BacktestEngine {
             const pos = position!;
             tradeCount++;
 
-            const grossPnl = (exitPrice - pos.entryPrice) * quantity;
+            // Use position's dynamic quantity
+            const qty = pos.quantity;
+
+            const grossPnl = (exitPrice - pos.entryPrice) * qty;
             const costs = calculateIntradayTradeCosts({
                 buyPrice: pos.entryPrice,
                 sellPrice: exitPrice,
-                quantity,
+                quantity: qty,
                 exchange: 'NSE'
             });
             const netPnl = grossPnl - costs.totalCost;
             const pnlPercent = ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100;
+
+            // NEW: Calculate invested capital = (executed entry price × quantity) + trade costs
+            const investedCapital = (pos.entryPrice * qty) + costs.totalCost;
 
             const entryDate = new Date(pos.entryTime * 1000);
             const exitDate = new Date(exitTime * 1000);
@@ -186,7 +200,8 @@ export class BacktestEngine {
                 direction: 'Long',
                 entryPrice: parseFloat(pos.entryPrice.toFixed(2)),
                 exitPrice: parseFloat(exitPrice.toFixed(2)),
-                quantity,
+                quantity: qty,
+                investedCapital: parseFloat(investedCapital.toFixed(2)),  // NEW
                 grossPnl: parseFloat(grossPnl.toFixed(2)),
                 pnl: parseFloat(netPnl.toFixed(2)),
                 pnlPercent: parseFloat(pnlPercent.toFixed(2)),
@@ -271,9 +286,15 @@ export class BacktestEngine {
                 // v1.5.0: Extract max hold time (calculated from entry time + maxHoldMinutes)
                 const maxHoldMinutes = signal.indicators['Max Hold Min'] as number | undefined;
                 const maxExitTime = maxHoldMinutes ? barTime + (maxHoldMinutes * 60) : null;
+
+                // v2.0.0: Dynamic position sizing - calculate quantity from available capital
+                const dynamicQty = Math.floor(currentEquity / entryPrice);
+                const positionQty = Math.max(dynamicQty, 1);  // At least 1 share
+
                 position = {
                     entryTime: barTime,
                     entryPrice: entryPrice,
+                    quantity: positionQty,  // NEW: Dynamic quantity
                     indicators: signal.indicators,
                     stopLoss: slPrice ?? null,
                     takeProfit: tpPrice ?? null,
@@ -420,6 +441,12 @@ export class BacktestEngine {
             maxConsecutiveLosses: Math.max(...periodMetrics.map(m => m.maxConsecutiveLosses)),
             riskRewardRatio: parseFloat((periodMetrics.reduce((s, m) => s + m.riskRewardRatio, 0) / n).toFixed(2)),
             timeInMarket: parseFloat(timeInMarket.toFixed(2)),
+            // NEW: Invested Capital Metrics (sum for total, average for others)
+            totalInvestedCapital: parseFloat(periodMetrics.reduce((s, m) => s + m.totalInvestedCapital, 0).toFixed(2)),
+            avgInvestedCapital: parseFloat((periodMetrics.reduce((s, m) => s + m.avgInvestedCapital, 0) / n).toFixed(2)),
+            returnOnInvested: parseFloat((periodMetrics.reduce((s, m) => s + m.returnOnInvested, 0) / n).toFixed(2)),
+            maxDrawdownOnInvested: parseFloat((periodMetrics.reduce((s, m) => s + m.maxDrawdownOnInvested, 0) / n).toFixed(2)),
+            recoveryFactorOnInvested: parseFloat((periodMetrics.reduce((s, m) => s + m.recoveryFactorOnInvested, 0) / n).toFixed(2)),
         };
     }
 
@@ -459,6 +486,23 @@ export class BacktestEngine {
 
         const { maxConsecutiveWins, maxConsecutiveLosses } = this.calculateConsecutiveStreaks(trades);
 
+        // ============= INVESTED CAPITAL METRICS =============
+        // Use trade.investedCapital directly (already calculated per trade)
+        const totalInvestedCapital = trades.reduce((sum, t) => sum + (t.investedCapital || 0), 0);
+
+        const avgInvestedCapital = trades.length > 0 ? totalInvestedCapital / trades.length : 0;
+
+        // Return on Invested = (totalPnL / totalInvestedCapital) × 100
+        const returnOnInvested = totalInvestedCapital > 0 ? (totalPnl / totalInvestedCapital) * 100 : 0;
+
+        // Max Drawdown on Invested Capital
+        const maxDrawdownOnInvested = this.calculateMaxDrawdownOnInvested(trades);
+
+        // Recovery Factor on Invested = returnOnInvested / |maxDrawdownOnInvested|
+        const recoveryFactorOnInvested = maxDrawdownOnInvested !== 0
+            ? Math.abs(returnOnInvested / maxDrawdownOnInvested)
+            : 0;
+
         return {
             return: parseFloat(totalReturn.toFixed(2)),
             sharpeRatio: parseFloat(sharpeRatio.toFixed(2)),
@@ -476,6 +520,12 @@ export class BacktestEngine {
             maxConsecutiveLosses,
             riskRewardRatio: parseFloat((avgLoss > 0 ? avgWin / avgLoss : 0).toFixed(2)),
             timeInMarket: 0,
+            // NEW: Invested Capital Metrics
+            totalInvestedCapital: parseFloat(totalInvestedCapital.toFixed(2)),
+            avgInvestedCapital: parseFloat(avgInvestedCapital.toFixed(2)),
+            returnOnInvested: parseFloat(returnOnInvested.toFixed(2)),
+            maxDrawdownOnInvested: parseFloat(maxDrawdownOnInvested.toFixed(2)),
+            recoveryFactorOnInvested: parseFloat(recoveryFactorOnInvested.toFixed(2)),
         };
     }
 
@@ -522,6 +572,37 @@ export class BacktestEngine {
     }
 
     /**
+     * Calculate max drawdown based on invested capital per trade
+     * Uses cumulative invested capital as the base instead of initial capital
+     */
+    private calculateMaxDrawdownOnInvested(trades: Trade[]): number {
+        if (trades.length === 0) return 0;
+
+        // Track cumulative investment and P&L
+        let cumulativeInvested = 0;
+        let cumulativePnL = 0;
+        let peakReturn = 0;
+        let maxDrawdown = 0;
+
+        for (const trade of trades) {
+            // Add this trade's investment
+            const invested = (trade.entryPrice * trade.quantity) + (trade.costs?.totalCost || 0);
+            cumulativeInvested += invested;
+            cumulativePnL += trade.pnl;
+
+            // Calculate current return percentage on total invested
+            const currentReturn = cumulativeInvested > 0 ? (cumulativePnL / cumulativeInvested) * 100 : 0;
+
+            // Track peak and drawdown
+            if (currentReturn > peakReturn) peakReturn = currentReturn;
+            const drawdown = peakReturn - currentReturn;
+            if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+        }
+
+        return -maxDrawdown;
+    }
+
+    /**
      * Calculate consecutive streaks
      */
     private calculateConsecutiveStreaks(trades: Trade[]): { maxConsecutiveWins: number; maxConsecutiveLosses: number } {
@@ -559,6 +640,9 @@ export class BacktestEngine {
             totalTrades: 0, profitFactor: 0, expectancy: 0, avgWin: 0, avgLoss: 0,
             payoffRatio: 0, recoveryFactor: 0, maxConsecutiveWins: 0, maxConsecutiveLosses: 0,
             riskRewardRatio: 0, timeInMarket: 0,
+            // NEW: Invested Capital Metrics
+            totalInvestedCapital: 0, avgInvestedCapital: 0, returnOnInvested: 0,
+            maxDrawdownOnInvested: 0, recoveryFactorOnInvested: 0,
         };
     }
 }

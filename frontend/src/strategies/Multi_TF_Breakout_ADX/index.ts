@@ -731,7 +731,7 @@ export class MultiTFBreakoutADXStrategy implements BaseStrategy<MultiTFBreakoutA
         const calculations = allCalculations.slice(-500);
 
         const backtestConfig = { initialCapital, quantity: 1 };
-        const { trades, barsInPosition, totalMarketBars } = backtestEngine.simulateTrades(signals, ohlcData, backtestConfig);
+        const { trades, barsInPosition, totalMarketBars, equity } = backtestEngine.simulateTrades(signals, ohlcData, backtestConfig);
         console.log(`✅ [Multi-TF Breakout ADX] ${trades.length} trades generated, Time in market: ${((barsInPosition / totalMarketBars) * 100).toFixed(1)}%`);
 
         const metrics = backtestEngine.calculateMetrics(trades, initialCapital, barsInPosition, totalMarketBars);
@@ -757,7 +757,7 @@ export class MultiTFBreakoutADXStrategy implements BaseStrategy<MultiTFBreakoutA
 
         const analytics = this.calculateAnalytics(baseTrades, hodLodStats, adxStats);
 
-        return { trades, metrics, analytics, calculations };
+        return { trades, metrics, analytics, calculations, equity };
     }
 }
 

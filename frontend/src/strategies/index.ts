@@ -43,3 +43,10 @@ export type { MultiTFBreakoutADX05Config, MultiTFBreakoutADX05Analytics, MultiTF
 export { MultiTFBreakoutADX1H05Strategy, multiTFBreakoutADX1H05Strategy } from './Multi_TF_Breakout_ADX_1H_05';
 export type { MultiTFBreakoutADX1H05Config, MultiTFBreakoutADX1H05Analytics, MultiTFBreakoutADX1H05Export } from './Multi_TF_Breakout_ADX_1H_05/types';
 
+// Multi-TF Breakout WDH ADX 1H Strategy (W/D/H + Hourly ADX > 25 filter - NO Monthly, 1:1 R:R)
+export { MultiTFBreakoutWDHADX1HStrategy, multiTFBreakoutWDHADX1HStrategy } from './Multi_TF_Breakout_WDH_ADX_1H';
+export type { MultiTFBreakoutWDHADX1HConfig, MultiTFBreakoutWDHADX1HAnalytics, MultiTFBreakoutWDHADX1HExport } from './Multi_TF_Breakout_WDH_ADX_1H/types';
+
+// Multi-TF Breakout WDH ADX 1H 0.5 Strategy (W/D/H + Hourly ADX > 25 filter - NO Monthly, 1:0.5 R:R)
+export { MultiTFBreakoutWDHADX1H05Strategy, multiTFBreakoutWDHADX1H05Strategy } from './Multi_TF_Breakout_WDH_ADX_1H_05';
+export type { MultiTFBreakoutWDHADX1H05Config, MultiTFBreakoutWDHADX1H05Analytics, MultiTFBreakoutWDHADX1H05Export } from './Multi_TF_Breakout_WDH_ADX_1H_05/types';
